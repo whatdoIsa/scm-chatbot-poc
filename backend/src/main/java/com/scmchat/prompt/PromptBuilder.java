@@ -38,8 +38,11 @@ public class PromptBuilder {
             throw new IllegalStateException(
                     "chat.prompts-dir is not a directory: " + promptsDir.toAbsolutePath().normalize());
         }
-        // 잘못된 chat.prompt-version은 첫 요청이 아니라 기동할 때 드러나게 한다.
-        PromptVersion.fromValue(chatProperties.promptVersion());
+        // 잘못된 버전과 깨진 프롬프트 파일은 첫 요청이 아니라 기동할 때 드러나게 한다.
+        PromptVersion configured = PromptVersion.fromValue(chatProperties.promptVersion());
+        if (configured != PromptVersion.V0) {
+            build(configured, "기동 확인");
+        }
     }
 
     public List<LlmMessage> build(PromptVersion version, String question) {

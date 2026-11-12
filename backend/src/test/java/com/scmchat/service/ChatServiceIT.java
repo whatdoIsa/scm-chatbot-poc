@@ -111,7 +111,7 @@ class ChatServiceIT {
         ChatResult result = chatService.answer("판매 전부 보여줘", PromptVersion.V2);
 
         assertThat(result.result().rows()).hasSize(200);
-        assertThat(result.result().truncated()).isFalse();
+        assertThat(result.result().truncated()).isTrue();
     }
 
     @Test

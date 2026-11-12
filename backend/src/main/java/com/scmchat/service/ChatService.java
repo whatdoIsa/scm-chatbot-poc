@@ -1,5 +1,6 @@
 package com.scmchat.service;
 
+import com.scmchat.config.ChatProperties;
 import com.scmchat.entity.ChatLog;
 import com.scmchat.executor.QueryResult;
 import com.scmchat.executor.ReadOnlySqlExecutor;
@@ -40,15 +41,18 @@ public class ChatService {
     private final SqlValidator validator;
     private final ReadOnlySqlExecutor executor;
     private final ChatLogRepository chatLogRepository;
+    private final int validatorLimit;
 
     public ChatService(PromptBuilder promptBuilder, LlmClient llmClient, LlmOutputParser parser,
-            SqlValidator validator, ReadOnlySqlExecutor executor, ChatLogRepository chatLogRepository) {
+            SqlValidator validator, ReadOnlySqlExecutor executor, ChatLogRepository chatLogRepository,
+            ChatProperties chatProperties) {
         this.promptBuilder = promptBuilder;
         this.llmClient = llmClient;
         this.parser = parser;
         this.validator = validator;
         this.executor = executor;
         this.chatLogRepository = chatLogRepository;
+        this.validatorLimit = chatProperties.validatorLimit();
     }
 
     public ChatResult answer(String question, PromptVersion version) {
@@ -59,6 +63,7 @@ public class ChatService {
         int promptTokens = 0;
         int completionTokens = 0;
         Outcome outcome;
+        Outcome firstError = null;
 
         while (true) {
             attempts++;
@@ -67,16 +72,20 @@ public class ChatService {
                 reply = llmClient.generate(messages);
             } catch (LlmUnavailableException e) {
                 log.warn("LLM call failed", e);
-                outcome = new Outcome(null, ChatStatus.LLM_UNAVAILABLE, LLM_UNAVAILABLE_MESSAGE, null, null, null);
+                outcome = firstError != null ? firstError
+                        : new Outcome(null, ChatStatus.LLM_UNAVAILABLE, LLM_UNAVAILABLE_MESSAGE, null, null, null);
                 break;
             }
             promptTokens += reply.promptTokens();
             completionTokens += reply.completionTokens();
 
-            outcome = interpret(reply, version);
-            if (outcome.retryError() == null || attempts >= maxAttempts) {
+            Outcome current = interpret(reply, version);
+            // 재시도에서 SQL이 아닌 답이 오면 첫 실행 오류를 결과로 남긴다. 실행 오류가 action 불일치로 바뀌어 기록되지 않게 한다.
+            outcome = firstError != null && current.action() != Action.SQL ? firstError : current;
+            if (current.retryError() == null || attempts >= maxAttempts) {
                 break;
             }
+            firstError = current;
             messages = promptBuilder.buildRetry(messages, reply.rawContent(), outcome.retryError());
         }
         return record(question, version, startedAt, attempts, promptTokens, completionTokens, outcome);
@@ -93,15 +102,21 @@ public class ChatService {
             return new Outcome(parsed.action(), ChatStatus.OK, parsed.message(), null, null, null);
         }
         String sql = parsed.sql();
+        boolean limitApplied = false;
         if (version == PromptVersion.V2) {
             ValidationResult validation = validator.validate(sql);
             if (!validation.ok()) {
                 return new Outcome(Action.SQL, ChatStatus.SQL_REJECTED, validation.reason(), sql, null, null);
             }
             sql = validation.sql();
+            limitApplied = validation.limitApplied();
         }
         try {
             QueryResult result = executor.execute(sql);
+            // 검증기가 붙인 LIMIT만큼 꽉 찬 결과는 더 있었을 수 있으므로 잘린 것으로 표시한다.
+            if (limitApplied && result.rows().size() >= validatorLimit) {
+                result = new QueryResult(result.columns(), result.rows(), true);
+            }
             return new Outcome(Action.SQL, ChatStatus.OK, null, sql, result, null);
         } catch (SqlExecutionException e) {
             return new Outcome(Action.SQL, ChatStatus.SQL_EXECUTION_ERROR, e.getMessage(), sql, null, e.getMessage());

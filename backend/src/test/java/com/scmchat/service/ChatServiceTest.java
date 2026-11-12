@@ -284,6 +284,35 @@ class ChatServiceTest {
     }
 
     @Test
+    void v2KeepsFirstExecutionErrorWhenRetryAnswersWithoutSql() {
+        when(executor.execute(any()))
+                .thenThrow(new SqlExecutionException("ERROR: column \"stock\" does not exist", "42703", null));
+        fakeLlm.enqueue("{\"action\":\"sql\",\"sql\":\"SELECT stock FROM inventory_daily\",\"message\":\"\"}",
+                "{\"action\":\"refuse\",\"sql\":\"\",\"message\":\"답할 수 없습니다.\"}");
+
+        ChatResult result = service.answer(QUESTION, PromptVersion.V2);
+
+        assertThat(result.action()).isEqualTo(Action.SQL);
+        assertThat(result.status()).isEqualTo(ChatStatus.SQL_EXECUTION_ERROR);
+        assertThat(result.sql()).isEqualTo("SELECT stock FROM inventory_daily LIMIT 200");
+        assertThat(result.attempts()).isEqualTo(2);
+    }
+
+    @Test
+    void v2MarksResultTruncatedWhenValidatorLimitFillsUp() {
+        List<List<Object>> rows = java.util.Collections.nCopies(200, List.<Object>of("x"));
+        when(executor.execute("SELECT sku FROM sales_daily LIMIT 200"))
+                .thenReturn(new QueryResult(List.of("sku"), rows, false));
+        when(executor.execute("SELECT sku FROM sales_daily LIMIT 200 OFFSET 0"))
+                .thenReturn(new QueryResult(List.of("sku"), rows, false));
+        fakeLlm.enqueue("{\"action\":\"sql\",\"sql\":\"SELECT sku FROM sales_daily\",\"message\":\"\"}",
+                "{\"action\":\"sql\",\"sql\":\"SELECT sku FROM sales_daily LIMIT 200 OFFSET 0\",\"message\":\"\"}");
+
+        assertThat(service.answer(QUESTION, PromptVersion.V2).result().truncated()).isTrue();
+        assertThat(service.answer(QUESTION, PromptVersion.V2).result().truncated()).isFalse();
+    }
+
+    @Test
     void v1DoesNotValidateOrRetry() {
         when(executor.execute("SELECT stock FROM inventory_daily"))
                 .thenThrow(new SqlExecutionException("ERROR: column \"stock\" does not exist", "42703", null));
@@ -308,7 +337,7 @@ class ChatServiceTest {
         // Gradle은 backend/를 작업 디렉터리로 테스트를 실행한다.
         ChatProperties properties = new ChatProperties("v0", LocalDate.of(2026, 11, 8), 1000, 200, "../prompts", llm);
         return new ChatService(new PromptBuilder(properties), llmClient, new LlmOutputParser(),
-                new SqlValidator(properties), executor, chatLogRepository);
+                new SqlValidator(properties), executor, chatLogRepository, properties);
     }
 
     /** 정해 둔 응답을 순서대로 돌려주고 받은 메시지를 기록한다. */

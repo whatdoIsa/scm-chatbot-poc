@@ -30,21 +30,29 @@ bash scripts/verify_db.sh       # 시드 검증 23개 항목
 bash scripts/eval_restore.sh    # (선택) 저장된 측정 결과를 DB에 넣는다
 ```
 
-백엔드와 화면
+백엔드와 화면은 터미널을 따로 열어 저장소 루트에서 각각 실행한다.
 
 ```bash
-cd backend && ./gradlew bootRun --args='--chat.llm.provider=ollama'   # http://localhost:8080
-cd frontend && npm ci && npm run dev                                   # http://localhost:5173
+# 터미널 1: 백엔드 http://localhost:8080
+set -a; . ./.env; set +a
+(cd backend && ./gradlew bootRun --args='--chat.llm.provider=ollama')
+```
+
+```bash
+# 터미널 2: 화면 http://localhost:5173
+(cd frontend && npm ci && npm run dev)
 ```
 
 `--chat.llm.provider`를 주지 않으면 모델 없이 동작하는 `fake`가 쓰인다. 프롬프트 버전은 `--chat.prompt-version=v0|v1|v2`(기본 v1).
 
 테스트와 평가
 
+아래는 모두 저장소 루트에서 실행한다(`.env`를 읽어 둔 상태).
+
 ```bash
-cd backend && ./gradlew test                    # 단위 테스트 (DB, 모델 불필요)
-cd backend && ./gradlew integrationTest         # 통합 테스트 (DB, Ollama 필요)
-cd backend && ./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v0,v1,v2'
+(cd backend && ./gradlew test)                  # 단위 테스트 (DB, 모델 불필요)
+(cd backend && ./gradlew integrationTest)       # 통합 테스트 (DB, Ollama 필요)
+(cd backend && ./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v0,v1,v2')
 bash scripts/final_check.sh                     # 동결 전 전체 점검
 ```
 
@@ -70,7 +78,7 @@ bash scripts/final_check.sh                     # 동결 전 전체 점검
   4. (v2) `SqlValidator`가 단일 SELECT, 허용 테이블, 허용 함수 목록, LIMIT 200을 확인한다.
 - **기준일 고정**: 데이터의 마지막 날 2026-11-08을 "오늘"로 본다. v1부터 프롬프트에 기준일과 기간 규칙을 넣는다.
 - **채점**: 생성 SQL의 실행 결과를 정답 SQL의 실행 결과와 값으로 비교한다. 컬럼명과 컬럼 순서는 보지 않고, 생성 결과에 라벨 컬럼이 더 있어도 된다. 숫자는 상대 오차 0.1%까지 같은 값이다.
-- **채점기 자체 검증**: 정답을 그대로 돌려주는 `oracle` provider로 평가하면 30 / 30이 나와야 한다. v2 경로(검증기와 LIMIT 적용)로도 30 / 30, 심화 세트 20 / 20을 확인했다.
+- **채점기 자체 검증**: 정답을 그대로 돌려주는 `oracle` provider로 평가하면 30 / 30이 나와야 한다. v0·v1·v2 경로(v2는 검증기와 LIMIT 적용) 모두 30 / 30, 심화 세트 20 / 20이며 CI가 매번 확인한다.
 - **골든셋 동결**: 측정 전에 SHA-256을 기록하고, 평가 실행기는 해시가 다르면 실행을 거부한다.
 - **결정적 시드**: 난수 대신 `hashtextextended`로 값을 만들어 다시 생성해도 테이블 체크섬이 같다.
 
@@ -159,7 +167,7 @@ bash scripts/final_check.sh                     # 동결 전 전체 점검
 - 질문: Q19 "SKU-008의 최근 13주 예측 정확도는?"
 - v1 생성 SQL: `sales_daily`에서 없는 컬럼 `week_start`를 참조해 실행 오류.
 - 변경(v2): PostgreSQL 오류 문구를 붙여 한 번 더 묻는다.
-- 결과: v2도 같은 오류를 냈고, 재시도 답은 SQL이 아니었다. 이 모델은 "일별 판매를 주 단위로 묶어 예측과 맞춘다"는 단계를 오류 문구만으로는 만들지 못했다.
+- 결과: v2도 같은 오류를 냈고 재시도(모델 호출 2회)에서도 정답을 만들지 못했다. 이 모델은 "일별 판매를 주 단위로 묶어 예측과 맞춘다"는 단계를 오류 문구만으로는 만들지 못했다.
 
 ### 5. v2가 v1보다 낮아진 문항
 
@@ -180,7 +188,7 @@ bash scripts/final_check.sh                     # 동결 전 전체 점검
 
 - **가짜 데이터, 적은 문항, 1회 측정**이다. 수치는 방향을 보는 용도이며 버전 간 2 ~ 3문항 차이는 우열로 읽지 않는다.
 - **v0 점수는 측정일에 따라 달라진다.** v0는 기준일이 없어 15개 문항에서 `CURRENT_DATE`를 썼다. 측정일(2026-11-12 ~ 13)이 데이터 마지막 날과 가까워 Q22, Q23은 맞았지만 다른 날에는 틀릴 수 있다.
-- **few-shot 예시가 골든셋과 같은 틀이다.** 질문 문자열은 겹치지 않지만, 안전재고 미달·재고보유일수·어제 판매량 예시는 골든셋 문항과 구조가 같다. v0 → v1 상승분의 일부는 예시가 정답의 틀을 알려 준 효과일 수 있고, 그 크기는 재지 않았다. 심화 세트로 방향만 따로 확인했다.
+- **few-shot 예시가 골든셋과 같은 틀이다.** 질문 문자열은 겹치지 않지만, 안전재고 미달·재고보유일수·어제 판매량 예시는 골든셋 문항과 구조가 같다. 영향을 보려고 예시를 골든셋과 틀이 다른 5개(품목명 조회, 리드타임 조회, 카테고리별 품목 수, 되묻기, 거부)로 바꿔 v1을 다시 재 보았다. 기본 세트는 22 → 20, 심화 세트는 11 → 8이었다(실행 61, 62). 즉 v0 → v1 상승분 15문항 가운데 2문항 정도가 예시의 틀에서 온 것으로 보이며, 나머지는 기준일·기간 규칙·지표 사전의 효과다. 공식 v1 수치(22)는 처음 정한 예시 그대로 둔 값이다. 바꿔 넣은 예시는 `eval/ablation/fewshot_alt.json`에 있고, `prompts/`를 복사해 `fewshot.json`만 이 파일로 바꾼 폴더를 `--chat.prompts-dir`로 주면 다시 잴 수 있다. 이 두 실행의 오답은 원인을 분류하지 않았다.
 - **심화 세트는 결과를 본 뒤에 썼다.** 약점을 알고 쓴 문항이라 편향이 있을 수 있다.
 - **오답 분류와 교차 검증의 독립성이 약하다.** v1·v2와 심화 세트의 오답 분류, `eval/crosscheck.md`의 재계산은 사람의 손계산이 아니라 생성 SQL과 원본 데이터를 근거로 한 판정이다.
 - **추가 컬럼 허용 규칙의 부작용**: 정답이 값 하나인 문항은 생성 결과의 어느 컬럼이든 그 값과 같으면 통과한다.

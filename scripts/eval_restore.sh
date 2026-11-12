@@ -10,7 +10,12 @@ if [ "$existing" != "0" ]; then
   exit 1
 fi
 
-docker compose exec -T db psql -U scm_app -d scm -v ON_ERROR_STOP=1 -q -f - < eval/reports/eval_data.sql
+if ! grep -q '^INSERT INTO app.eval_run ' eval/reports/eval_data.sql; then
+  echo "eval/reports/eval_data.sql has no eval runs" >&2
+  exit 1
+fi
+
+docker compose exec -T db psql -U scm_app -d scm -v ON_ERROR_STOP=1 -q -f - < eval/reports/eval_data.sql > /dev/null
 docker compose exec -T db psql -U scm_app -d scm -v ON_ERROR_STOP=1 -Atq <<'EOSQL'
 SELECT setval('app.eval_run_id_seq', (SELECT max(id) FROM app.eval_run));
 SELECT setval('app.eval_result_id_seq', (SELECT max(id) FROM app.eval_result));

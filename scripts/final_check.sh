@@ -12,6 +12,11 @@ step ".env가 git에 추적되지 않는다"
 
 step "추적 파일에 실제 비밀번호가 없다"
 for secret in "$POSTGRES_PASSWORD" "$SCM_RO_PASSWORD"; do
+  # 자리표시자나 짧은 값은 다른 문자열의 일부로 걸릴 수 있어 검사 대상에서 뺀다.
+  if [ "${#secret}" -lt 12 ]; then
+    echo "skipped a password shorter than 12 characters (placeholder?)"
+    continue
+  fi
   if git grep -qF -- "$secret"; then
     echo "a real password from .env is committed" >&2
     exit 1

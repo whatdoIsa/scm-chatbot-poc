@@ -5,10 +5,20 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-docker compose exec -T db pg_dump -U scm_app -d scm --data-only --column-inserts \
-  -t app.eval_run -t app.eval_result \
-  | grep -vE '^(--|SET |SELECT pg_catalog\.set_config|\\(un)?restrict )' \
-  | sed '/^$/N;/^\n$/D' > eval/reports/eval_data.sql
+target=eval/reports/eval_data.sql
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
 
-echo "dumped $(grep -c '^INSERT INTO app.eval_run ' eval/reports/eval_data.sql) runs," \
-  "$(grep -c '^INSERT INTO app.eval_result ' eval/reports/eval_data.sql) results"
+# 임시 파일에 먼저 쓴다. 덤프가 실패하거나 비어 있으면 기존 파일을 건드리지 않는다.
+docker compose exec -T db pg_dump -U scm_app -d scm --data-only --column-inserts \
+  -t app.eval_run -t app.eval_result > "$tmp"
+
+runs=$(grep -c '^INSERT INTO app.eval_run ' "$tmp" || true)
+results=$(grep -c '^INSERT INTO app.eval_result ' "$tmp" || true)
+if [ "$runs" = "0" ]; then
+  echo "the database has no eval runs; $target is left unchanged" >&2
+  exit 1
+fi
+
+cp "$tmp" "$target"
+echo "dumped $runs runs, $results results"

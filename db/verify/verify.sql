@@ -1,4 +1,4 @@
--- 시드 검증. psql -At로 실행하면 한 줄에 name|ok(t 또는 f)가 나온다.
+-- 시드와 읽기 전용 역할 권한 검증. psql -At로 실행하면 한 줄에 name|ok(t 또는 f)가 나온다.
 -- 지표 정의는 PRD 5.3, 하한은 PRD 5.5를 따른다. 기준일은 2026-11-08.
 
 WITH
@@ -93,6 +93,12 @@ checks (ord, name, ok) AS (
     (SELECT count(*) FROM scm.supply_policy sp
      WHERE NOT EXISTS (SELECT 1 FROM scm.product p WHERE p.sku = sp.sku)
         OR NOT EXISTS (SELECT 1 FROM scm.location l WHERE l.location_id = sp.location_id)) = 0
+  UNION ALL SELECT 21, 'scm_ro_no_temp_privilege',
+    NOT has_database_privilege('scm_ro', current_database(), 'TEMPORARY')
+  UNION ALL SELECT 22, 'scm_ro_no_public_schema_privilege',
+    NOT has_schema_privilege('scm_ro', 'public', 'USAGE') AND NOT has_schema_privilege('scm_ro', 'public', 'CREATE')
+  UNION ALL SELECT 23, 'scm_ro_no_app_schema_privilege',
+    NOT has_schema_privilege('scm_ro', 'app', 'USAGE')
 )
 SELECT name, coalesce(ok, false) AS ok
 FROM checks

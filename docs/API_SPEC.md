@@ -374,7 +374,7 @@ JPA는 `ddl-auto=validate`, 기본 스키마 `app`.
 | prompt | `PromptBuilder` | `List<LlmMessage> build(PromptVersion v, String question)`, `List<LlmMessage> buildRetry(List<LlmMessage> prior, String rawReply, String error)` |
 | prompt | `MetricsDictionary`, `SchemaSelector`, `FewShotLoader` | 4.2~4.4 |
 | validator | `SqlValidator` | `ValidationResult validate(String sql)` |
-| validator | `ValidationResult` (record) | `boolean ok, String sql, String reason` |
+| validator | `ValidationResult` (record) | `boolean ok, String sql, String reason, boolean limitApplied` |
 | executor | `ReadOnlySqlExecutor` | `QueryResult execute(String sql)` (실패 시 `SqlExecutionException`) |
 | executor | `QueryResult` (record) | `List<String> columns, List<List<Object>> rows, boolean truncated` |
 | service | `ChatService` | `ChatResult answer(String question, PromptVersion version)` |
@@ -396,6 +396,9 @@ JPA는 `ddl-auto=validate`, 기본 스키마 `app`.
 4. 참조 테이블(CTE 이름 제외)은 6개 허용 테이블이며 접두어는 없거나 `scm.`만 허용
 5. 함수명이 `pg_` 접두어이거나 `set_config`, `current_setting`, `dblink`, `lo_import`, `lo_export`, `copy`에 해당하면 거부 (`pg_sleep` 포함)
 6. 최상위 LIMIT이 없거나 200 초과면 200으로 설정
+7. 달러 인용(`$$`), 역슬래시, `E''`·`U&` 접두 문자열은 거부 (정규식과 PostgreSQL이 문자열 경계를 다르게 읽을 수 있음)
+8. 함수는 허용 목록(집계, 윈도, 수치, 날짜, 문자열)에 있는 것만 허용. 주석(`--`, `/* */`)은 거부
+9. 검증기가 LIMIT을 붙였거나 낮췄고 결과가 상한을 채우면 응답의 `truncated`를 true로 둔다
 
 ## 7. 설정 키 (`backend/src/main/resources/application.yml`)
 

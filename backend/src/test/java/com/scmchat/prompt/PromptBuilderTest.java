@@ -13,8 +13,6 @@ import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 
 class PromptBuilderTest {
 
@@ -63,11 +61,48 @@ class PromptBuilderTest {
         assertThat(system).doesNotContain("SKU-007");
     }
 
-    @ParameterizedTest
-    @EnumSource(value = PromptVersion.class, names = {"V1", "V2"})
-    void laterVersionsAreNotImplementedYet(PromptVersion version) {
-        assertThatThrownBy(() -> builder.build(version, QUESTION))
-                .isInstanceOf(UnsupportedOperationException.class);
+    @Test
+    void v1ContainsAsOfDateAndForbidsClockFunctions() {
+        String system = builder.build(PromptVersion.V1, QUESTION).get(0).content();
+
+        assertThat(system).contains("The as-of date (\"today\") is 2026-11-08", "Never use CURRENT_DATE");
+    }
+
+    @Test
+    void v1ContainsFullSchemaDateRulesAndAllMetrics() {
+        String system = builder.build(PromptVersion.V1, QUESTION).get(0).content();
+
+        assertThat(system).contains(
+                "CREATE TABLE product (", "CREATE TABLE location (", "CREATE TABLE sales_daily (",
+                "CREATE TABLE inventory_daily (", "CREATE TABLE forecast_weekly (", "CREATE TABLE supply_policy (");
+        assertThat(system).contains("- 지난주: ", "2026-10-26 ~ 2026-11-01", "- 최근 13주: ", "- 데이터 범위 밖 기간: refuse");
+        assertThat(system).contains("- 일평균 판매량(최근 N일): ", "- 재고보유일수: ", "- 결품률: ",
+                "- 안전재고 미달: ", "- 재주문 필요: ", "- 예측 정확도: ");
+        assertThat(system).contains("SKU-7은 SKU-007로 정규화한다", "재고, 현재고 -> inventory_daily.on_hand");
+    }
+
+    @Test
+    void v1ContainsFiveFewShotExamples() {
+        String system = builder.build(PromptVersion.V1, QUESTION).get(0).content();
+
+        assertThat(system.split("\nQuestion: ", -1)).hasSize(6);
+        assertThat(system).contains("Question: SKU-012의 어제 판매량은?");
+    }
+
+    @Test
+    void v1SendsOnlyTheQuestionAsUserMessageAndLeavesNoPlaceholder() {
+        List<LlmMessage> messages = builder.build(PromptVersion.V1, QUESTION);
+
+        assertThat(messages).hasSize(2);
+        assertThat(messages.get(1)).isEqualTo(LlmMessage.user(QUESTION));
+        assertThat(messages.get(0).content()).doesNotContain("{{", "}}");
+    }
+
+    @Test
+    void v0IsNotAffectedByV1Files() {
+        String v0 = builder.build(PromptVersion.V0, QUESTION).get(0).content();
+
+        assertThat(v0).doesNotContain("2026-11-08", "Question: ", "재고보유일수");
     }
 
     @Test
@@ -94,9 +129,53 @@ class PromptBuilderTest {
     }
 
     @Test
-    void supportsOnlyV0ForNow() {
-        assertThat(builder.supports(PromptVersion.V0)).isTrue();
-        assertThat(builder.supports(PromptVersion.V1)).isFalse();
+    void v2ContainsOnlyTablesAndMetricsRelevantToTheQuestion() {
+        String system = builder.build(PromptVersion.V2, "SKU-008의 최근 13주 예측 정확도는?").get(0).content();
+
+        assertThat(system).contains("CREATE TABLE forecast_weekly (", "CREATE TABLE sales_daily (",
+                "CREATE TABLE product (", "CREATE TABLE location (", "- 예측 정확도: ");
+        assertThat(system).doesNotContain("CREATE TABLE supply_policy (", "CREATE TABLE inventory_daily (",
+                "- 재고보유일수: ", "- 결품률: ");
+        assertThat(system).contains("The as-of date (\"today\") is 2026-11-08", "- 지난주: ");
+        assertThat(system.split("\nQuestion: ", -1)).hasSize(6);
+        assertThat(system).doesNotContain("{{", "}}");
+    }
+
+    @Test
+    void v2FallsBackToFullSchemaWhenNoKeywordMatches() {
+        String system = builder.build(PromptVersion.V2, "안녕하세요").get(0).content();
+
+        assertThat(system).contains("CREATE TABLE product (", "CREATE TABLE supply_policy (",
+                "CREATE TABLE forecast_weekly (", "CREATE TABLE inventory_daily (");
+    }
+
+    @Test
+    void v2AddsTablesNeededByTheMentionedMetric() {
+        assertThat(builder.tablesFor("결품률이 높은 곳은?"))
+                .contains("inventory_daily", "product", "location");
+        assertThat(builder.tablesFor("일평균 판매량은?")).contains("sales_daily");
+    }
+
+    @Test
+    void buildsRetryMessagesFromPriorConversation() {
+        List<LlmMessage> prior = builder.build(PromptVersion.V2, QUESTION);
+
+        List<LlmMessage> retry = builder.buildRetry(prior, "{\"action\":\"sql\"}", "ERROR: column \"x\" does not exist");
+
+        assertThat(retry).hasSize(4);
+        assertThat(retry.subList(0, 2)).isEqualTo(prior);
+        assertThat(retry.get(2)).isEqualTo(LlmMessage.assistant("{\"action\":\"sql\"}"));
+        assertThat(retry.get(3)).isEqualTo(LlmMessage.user("The previous SQL failed with this PostgreSQL error:\n"
+                + "ERROR: column \"x\" does not exist\nReturn the corrected JSON in the same format."));
+    }
+
+    @Test
+    void rejectsUnknownConfiguredVersionAtStartup() {
+        ChatProperties.Llm llm = new ChatProperties.Llm(
+                "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
+        ChatProperties properties = new ChatProperties("v9", LocalDate.of(2026, 11, 8), 1000, 200, "../prompts", llm);
+
+        assertThatThrownBy(() -> new PromptBuilder(properties)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

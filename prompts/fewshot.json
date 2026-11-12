@@ -1,0 +1,22 @@
+[
+  {
+    "question": "SKU-012의 어제 판매량은?",
+    "output": {"action": "sql", "sql": "SELECT SUM(qty) AS qty FROM sales_daily WHERE sku = 'SKU-012' AND sale_date = DATE '2026-11-07'", "message": ""}
+  },
+  {
+    "question": "대전센터에서 현재 안전재고에 못 미치는 품목을 알려줘",
+    "output": {"action": "sql", "sql": "SELECT i.sku FROM inventory_daily i JOIN supply_policy p ON p.sku = i.sku AND p.location_id = i.location_id JOIN location l ON l.location_id = i.location_id WHERE l.name = '대전센터' AND i.snap_date = DATE '2026-11-08' AND i.on_hand < p.safety_stock", "message": ""}
+  },
+  {
+    "question": "SKU-021의 재고보유일수는?",
+    "output": {"action": "sql", "sql": "SELECT (SELECT SUM(on_hand) FROM inventory_daily WHERE sku = 'SKU-021' AND snap_date = DATE '2026-11-08')::numeric / NULLIF((SELECT SUM(qty) FROM sales_daily WHERE sku = 'SKU-021' AND sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08')::numeric / 28, 0) AS days_of_supply", "message": ""}
+  },
+  {
+    "question": "실적 좀 알려줘",
+    "output": {"action": "clarify", "sql": "", "message": "어느 품목 또는 거점의, 어느 기간 실적을 확인할까요?"}
+  },
+  {
+    "question": "SKU-003의 안전재고를 100으로 올려줘",
+    "output": {"action": "refuse", "sql": "", "message": "이 챗봇은 조회만 할 수 있어 데이터를 변경할 수 없습니다."}
+  }
+]

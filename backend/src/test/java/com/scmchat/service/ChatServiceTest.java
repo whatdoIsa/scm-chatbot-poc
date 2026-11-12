@@ -24,6 +24,7 @@ import com.scmchat.llm.LlmUnavailableException;
 import com.scmchat.prompt.PromptBuilder;
 import com.scmchat.prompt.PromptVersion;
 import com.scmchat.repository.ChatLogRepository;
+import com.scmchat.validator.SqlValidator;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -199,10 +200,129 @@ class ChatServiceTest {
     }
 
     @Test
-    void propagatesUnsupportedPromptVersion() {
-        assertThatThrownBy(() -> service.answer(QUESTION, PromptVersion.V1))
-                .isInstanceOf(UnsupportedOperationException.class);
-        verify(chatLogRepository, never()).save(any());
+    void v2ExecutesValidatedSqlWithLimit() {
+        when(executor.execute("SELECT sku FROM product LIMIT 200")).thenReturn(
+                new QueryResult(List.of("sku"), List.of(List.of("SKU-001")), false));
+        fakeLlm.enqueue("{\"action\":\"sql\",\"sql\":\"SELECT sku FROM product\",\"message\":\"\"}");
+
+        ChatResult result = service.answer(QUESTION, PromptVersion.V2);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.OK);
+        assertThat(result.sql()).isEqualTo("SELECT sku FROM product LIMIT 200");
+        assertThat(result.attempts()).isEqualTo(1);
+    }
+
+    @Test
+    void v2RejectsInvalidSqlWithoutExecutingOrRetrying() {
+        fakeLlm.enqueue("{\"action\":\"sql\",\"sql\":\"DELETE FROM supply_policy\",\"message\":\"\"}",
+                "{\"action\":\"sql\",\"sql\":\"SELECT 1\",\"message\":\"\"}");
+
+        ChatResult result = service.answer("공급 정책 데이터를 전부 삭제해줘", PromptVersion.V2);
+
+        assertThat(result.action()).isEqualTo(Action.SQL);
+        assertThat(result.status()).isEqualTo(ChatStatus.SQL_REJECTED);
+        assertThat(result.sql()).isEqualTo("DELETE FROM supply_policy");
+        assertThat(result.message()).contains("not allowed");
+        assertThat(result.attempts()).isEqualTo(1);
+        verify(executor, never()).execute(any());
+    }
+
+    @Test
+    void v2RetriesOnceAfterExecutionErrorAndSucceeds() {
+        when(executor.execute("SELECT stock FROM inventory_daily LIMIT 200"))
+                .thenThrow(new SqlExecutionException("ERROR: column \"stock\" does not exist", "42703", null));
+        QueryResult rows = new QueryResult(List.of("on_hand"), List.of(List.of(120)), false);
+        when(executor.execute("SELECT on_hand FROM inventory_daily LIMIT 200")).thenReturn(rows);
+        ChatService stubbed = serviceWith(new ScriptedLlmClient(
+                new LlmReply("{\"action\":\"sql\",\"sql\":\"SELECT stock FROM inventory_daily\",\"message\":\"\"}", 500, 20),
+                new LlmReply("{\"action\":\"sql\",\"sql\":\"SELECT on_hand FROM inventory_daily\",\"message\":\"\"}", 560, 22)));
+
+        ChatResult result = stubbed.answer(QUESTION, PromptVersion.V2);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.OK);
+        assertThat(result.result()).isEqualTo(rows);
+        assertThat(result.sql()).isEqualTo("SELECT on_hand FROM inventory_daily LIMIT 200");
+        assertThat(result.attempts()).isEqualTo(2);
+        assertThat(result.promptTokens()).isEqualTo(1060);
+        assertThat(result.completionTokens()).isEqualTo(42);
+        ChatLog saved = savedChatLog();
+        assertThat(saved.getAttempts()).isEqualTo(2);
+        assertThat(saved.getStatus()).isEqualTo("OK");
+    }
+
+    @Test
+    void v2ReturnsExecutionErrorWhenRetryAlsoFails() {
+        when(executor.execute(any()))
+                .thenThrow(new SqlExecutionException("ERROR: column \"stock\" does not exist", "42703", null));
+        fakeLlm.enqueue("{\"action\":\"sql\",\"sql\":\"SELECT stock FROM inventory_daily\",\"message\":\"\"}",
+                "{\"action\":\"sql\",\"sql\":\"SELECT stock FROM product\",\"message\":\"\"}",
+                "{\"action\":\"sql\",\"sql\":\"SELECT 1\",\"message\":\"\"}");
+
+        ChatResult result = service.answer(QUESTION, PromptVersion.V2);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.SQL_EXECUTION_ERROR);
+        assertThat(result.sql()).isEqualTo("SELECT stock FROM product LIMIT 200");
+        assertThat(result.attempts()).isEqualTo(2);
+        verify(executor, times(2)).execute(any());
+    }
+
+    @Test
+    void v2SendsPostgresErrorBackToTheModelOnRetry() {
+        when(executor.execute("SELECT stock FROM inventory_daily LIMIT 200"))
+                .thenThrow(new SqlExecutionException("ERROR: column \"stock\" does not exist", "42703", null));
+        when(executor.execute("SELECT 1 LIMIT 200")).thenReturn(new QueryResult(List.of("v"), List.of(List.of(1)), false));
+        ScriptedLlmClient scripted = new ScriptedLlmClient(
+                new LlmReply("{\"action\":\"sql\",\"sql\":\"SELECT stock FROM inventory_daily\",\"message\":\"\"}", 1, 1),
+                new LlmReply("{\"action\":\"sql\",\"sql\":\"SELECT 1\",\"message\":\"\"}", 1, 1));
+
+        serviceWith(scripted).answer(QUESTION, PromptVersion.V2);
+
+        List<LlmMessage> second = scripted.requests.get(1);
+        assertThat(second).hasSize(4);
+        assertThat(second.get(2).role()).isEqualTo("assistant");
+        assertThat(second.get(3).content()).contains("ERROR: column \"stock\" does not exist");
+    }
+
+    @Test
+    void v2KeepsFirstExecutionErrorWhenRetryAnswersWithoutSql() {
+        when(executor.execute(any()))
+                .thenThrow(new SqlExecutionException("ERROR: column \"stock\" does not exist", "42703", null));
+        fakeLlm.enqueue("{\"action\":\"sql\",\"sql\":\"SELECT stock FROM inventory_daily\",\"message\":\"\"}",
+                "{\"action\":\"refuse\",\"sql\":\"\",\"message\":\"답할 수 없습니다.\"}");
+
+        ChatResult result = service.answer(QUESTION, PromptVersion.V2);
+
+        assertThat(result.action()).isEqualTo(Action.SQL);
+        assertThat(result.status()).isEqualTo(ChatStatus.SQL_EXECUTION_ERROR);
+        assertThat(result.sql()).isEqualTo("SELECT stock FROM inventory_daily LIMIT 200");
+        assertThat(result.attempts()).isEqualTo(2);
+    }
+
+    @Test
+    void v2MarksResultTruncatedWhenValidatorLimitFillsUp() {
+        List<List<Object>> rows = java.util.Collections.nCopies(200, List.<Object>of("x"));
+        when(executor.execute("SELECT sku FROM sales_daily LIMIT 200"))
+                .thenReturn(new QueryResult(List.of("sku"), rows, false));
+        when(executor.execute("SELECT sku FROM sales_daily LIMIT 200 OFFSET 0"))
+                .thenReturn(new QueryResult(List.of("sku"), rows, false));
+        fakeLlm.enqueue("{\"action\":\"sql\",\"sql\":\"SELECT sku FROM sales_daily\",\"message\":\"\"}",
+                "{\"action\":\"sql\",\"sql\":\"SELECT sku FROM sales_daily LIMIT 200 OFFSET 0\",\"message\":\"\"}");
+
+        assertThat(service.answer(QUESTION, PromptVersion.V2).result().truncated()).isTrue();
+        assertThat(service.answer(QUESTION, PromptVersion.V2).result().truncated()).isFalse();
+    }
+
+    @Test
+    void v1DoesNotValidateOrRetry() {
+        when(executor.execute("SELECT stock FROM inventory_daily"))
+                .thenThrow(new SqlExecutionException("ERROR: column \"stock\" does not exist", "42703", null));
+        fakeLlm.enqueue("{\"action\":\"sql\",\"sql\":\"SELECT stock FROM inventory_daily\",\"message\":\"\"}");
+
+        ChatResult result = service.answer(QUESTION, PromptVersion.V1);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.SQL_EXECUTION_ERROR);
+        assertThat(result.sql()).isEqualTo("SELECT stock FROM inventory_daily");
+        assertThat(result.attempts()).isEqualTo(1);
     }
 
     private ChatLog savedChatLog() {
@@ -216,8 +336,30 @@ class ChatServiceTest {
                 "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
         // Gradle은 backend/를 작업 디렉터리로 테스트를 실행한다.
         ChatProperties properties = new ChatProperties("v0", LocalDate.of(2026, 11, 8), 1000, 200, "../prompts", llm);
-        return new ChatService(new PromptBuilder(properties), llmClient, new LlmOutputParser(), executor,
-                chatLogRepository);
+        return new ChatService(new PromptBuilder(properties), llmClient, new LlmOutputParser(),
+                new SqlValidator(properties), executor, chatLogRepository, properties);
+    }
+
+    /** 정해 둔 응답을 순서대로 돌려주고 받은 메시지를 기록한다. */
+    private static final class ScriptedLlmClient implements LlmClient {
+
+        private final java.util.ArrayDeque<LlmReply> replies;
+        private final List<List<LlmMessage>> requests = new java.util.ArrayList<>();
+
+        private ScriptedLlmClient(LlmReply... replies) {
+            this.replies = new java.util.ArrayDeque<>(List.of(replies));
+        }
+
+        @Override
+        public LlmReply generate(List<LlmMessage> messages) {
+            requests.add(messages);
+            return replies.remove();
+        }
+
+        @Override
+        public String modelName() {
+            return "scripted";
+        }
     }
 
     /** reply가 null이면 연결 실패를 흉내 낸다. */

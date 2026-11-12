@@ -158,18 +158,6 @@ class ChatControllerTest {
     }
 
     @Test
-    void answersNotImplementedForUnsupportedPromptVersion() throws Exception {
-        when(chatService.answer(any(), any()))
-                .thenThrow(new UnsupportedOperationException("prompt version v1 is not implemented yet"));
-
-        postQuestion("질문")
-                .andExpect(status().isNotImplemented())
-                .andExpect(content().json(
-                        "{\"code\":\"NOT_IMPLEMENTED\",\"message\":\"prompt version v1 is not implemented yet\"}",
-                        JsonCompareMode.STRICT));
-    }
-
-    @Test
     void rejectsMalformedJson() throws Exception {
         mockMvc.perform(post("/api/chat").contentType(MediaType.APPLICATION_JSON).content("{question:"))
                 .andExpect(status().isBadRequest())

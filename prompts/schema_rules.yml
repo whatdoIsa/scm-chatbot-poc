@@ -1,0 +1,16 @@
+# v2 스키마 축소 규칙(API_SPEC 4.4). 질문에 키워드가 있으면 해당 테이블의 DDL만 프롬프트에 넣는다.
+rules:
+  - keywords: [판매, 출고, qty]
+    tables: [sales_daily]
+  - keywords: [재고, on_hand, 재고보유, 결품, 입고예정]
+    tables: [inventory_daily]
+  - keywords: [예측, 정확도, WMAPE]
+    tables: [forecast_weekly, sales_daily]
+  - keywords: [안전재고, 리드타임, 재주문]
+    tables: [supply_policy, inventory_daily]
+  - keywords: [품목, SKU, 카테고리, ABC]
+    tables: [product]
+  - keywords: [거점, 센터, 창고, 지역]
+    tables: [location]
+fallbackAllTables: true
+alwaysAddDimensions: true

@@ -24,7 +24,10 @@ function formatCell(value: Cell): string {
   if (value === null) {
     return '-'
   }
-  return typeof value === 'number' ? value.toLocaleString('ko-KR', { maximumFractionDigits: 4 }) : String(value)
+  // 연도나 번호 컬럼이 2,026처럼 보이지 않게 자릿수 구분 기호는 넣지 않는다.
+  return typeof value === 'number'
+    ? value.toLocaleString('ko-KR', { maximumFractionDigits: 4, useGrouping: false })
+    : String(value)
 }
 
 function ResultTable({ response }: { response: ChatResponse }) {
@@ -118,7 +121,6 @@ export default function App() {
   async function submit(text: string) {
     const id = nextId.current++
     setExchanges((previous) => [{ id, question: text }, ...previous])
-    setQuestion('')
     setLoading(true)
     try {
       const response = await ask(text)
@@ -134,6 +136,7 @@ export default function App() {
   function onSubmit(event: FormEvent) {
     event.preventDefault()
     if (canSubmit) {
+      setQuestion('')
       void submit(trimmed)
     }
   }

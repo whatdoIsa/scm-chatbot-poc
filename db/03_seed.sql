@@ -148,6 +148,9 @@ DECLARE
   on_hand int;
   in_transit int;
   promo_qty int;
+  promo_in_transit int;
+  promo_reserve int;
+  base_demand int;
   demand int;
   sold int;
 BEGIN
@@ -161,12 +164,20 @@ BEGIN
     arrivals := array_fill(0, ARRAY[day_count + max_lead_time + 1]);
     on_hand := p.init_on_hand;
     in_transit := 0;
+    promo_in_transit := 0;
+    promo_reserve := 0;
 
     FOR day_idx IN 0 .. day_count - 1 LOOP
       d := first_day + day_idx;
 
+      -- 프로모션이 끝나면 남은 사전 물량을 일반 재고로 돌린다.
+      IF d = p.promo_start + promo_days THEN
+        promo_reserve := 0;
+      END IF;
+
       -- 아침 발주: 전일 마감 재고 위치(재고 + 입고 예정)가 재주문점 이하이면 발주한다.
-      IF on_hand + in_transit <= p.reorder_point
+      -- 프로모션 사전 물량은 증가분 수요에만 쓰이므로 재고 위치에서 뺀다. 넣으면 정기 발주가 밀려 결품이 난다.
+      IF (on_hand - promo_reserve) + (in_transit - promo_in_transit) <= p.reorder_point
          AND NOT coalesce(d BETWEEN p.disruption_start AND p.disruption_end, false) THEN
         slot := day_idx + 1 + p.lead_time_days;
         arrivals[slot] := arrivals[slot] + p.order_qty;
@@ -179,20 +190,28 @@ BEGIN
         slot := day_idx + 1 + p.lead_time_days;
         arrivals[slot] := arrivals[slot] + promo_qty;
         in_transit := in_transit + promo_qty;
+        promo_in_transit := promo_qty;
+      END IF;
+      IF d = p.promo_start THEN
+        promo_reserve := promo_in_transit;
+        promo_in_transit := 0;
       END IF;
 
       on_hand := on_hand + arrivals[day_idx + 1];
       in_transit := in_transit - arrivals[day_idx + 1];
 
-      demand := round(
+      base_demand := round(
         p.daily_base
         * dow_factor[extract(isodow FROM d)::int]
         * (1 + p.trend_slope * day_idx / 90.0)
         * (0.8 + 0.4 * pg_temp.u('noise|' || p.sku || '|' || p.location_id || '|' || day_idx))
-        * CASE WHEN d >= p.promo_start AND d < p.promo_start + promo_days THEN promo_multiplier ELSE 1 END
       );
+      demand := base_demand
+        * CASE WHEN d >= p.promo_start AND d < p.promo_start + promo_days THEN promo_multiplier ELSE 1 END;
       sold := least(demand, on_hand);
       on_hand := on_hand - sold;
+      -- 평소 수요를 넘는 판매분은 사전 물량에서 나간 것으로 본다.
+      promo_reserve := promo_reserve - least(promo_reserve, greatest(sold - base_demand, 0));
 
       INSERT INTO scm.sales_daily (sale_date, sku, location_id, qty)
       VALUES (d, p.sku, p.location_id, sold);

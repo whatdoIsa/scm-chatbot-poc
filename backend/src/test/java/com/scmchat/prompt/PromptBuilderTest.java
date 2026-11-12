@@ -87,6 +87,19 @@ class PromptBuilderTest {
     }
 
     @Test
+    void failsAtStartupWhenPromptsDirDoesNotExist(@TempDir Path parent) {
+        assertThatThrownBy(() -> builderFor(parent.resolve("missing")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("chat.prompts-dir");
+    }
+
+    @Test
+    void supportsOnlyV0ForNow() {
+        assertThat(builder.supports(PromptVersion.V0)).isTrue();
+        assertThat(builder.supports(PromptVersion.V1)).isFalse();
+    }
+
+    @Test
     void parsesVersionValues() {
         assertThat(PromptVersion.fromValue("v0")).isEqualTo(PromptVersion.V0);
         assertThat(PromptVersion.V2.value()).isEqualTo("v2");

@@ -78,6 +78,18 @@ public class EvalRun {
         this.startedAt = startedAt;
     }
 
+    /** 모든 문항을 채점한 뒤 요약 값을 채운다. */
+    public void complete(OffsetDateTime finishedAt, int total, int correct, BigDecimal accuracy,
+            BigDecimal sqlExecSuccessRate, BigDecimal formatOkRate, int avgElapsedMs) {
+        this.finishedAt = finishedAt;
+        this.total = total;
+        this.correct = correct;
+        this.accuracy = accuracy;
+        this.sqlExecSuccessRate = sqlExecSuccessRate;
+        this.formatOkRate = formatOkRate;
+        this.avgElapsedMs = avgElapsedMs;
+    }
+
     public Long getId() {
         return id;
     }

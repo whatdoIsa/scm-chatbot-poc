@@ -1,3 +1,5 @@
 eval/golden_set.json -text
 eval/golden_set.sha256 -text
 prompts/v0.txt -text
+eval/golden_set_deep.json -text
+eval/golden_set_deep.sha256 -text

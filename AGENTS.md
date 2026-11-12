@@ -27,11 +27,12 @@ Claude Code는 이 파일을 먼저 읽는다. `CLAUDE.md`에는 `@AGENTS.md` �
 scm-chatbot-poc/
   AGENTS.md  CLAUDE.md  README.md  docker-compose.yml  .env.example  .gitignore
   db/            01_roles.sh  02_schema.sql  03_seed.sql  04_grants.sql  verify/verify.sql
-  scripts/       db_reset.sh  db_checksum.sh  verify_db.sh  final_check.sh
+  scripts/       db_reset.sh  db_checksum.sh  verify_db.sh  eval_dump.sh  eval_restore.sh  final_check.sh
   backend/       build.gradle  src/main/java/com/scmchat/{controller,service,llm,prompt,validator,executor,mapper,entity,repository,eval,config,dto}
   frontend/      Vite 프로젝트
   prompts/       v0.txt  v1.txt  v2.txt  metrics.yml  fewshot.json  schema_rules.yml
-  eval/          golden_set.json  golden_set.sha256  crosscheck.md  reports/
+  eval/          golden_set.json  golden_set.sha256  golden_set_deep.json  golden_set_deep.sha256  crosscheck.md  reports/
+  .github/       workflows/ci.yml  pull_request_template.md
   docs/          PRD.md  API_SPEC.md  ai-mistakes.md
 ```
 
@@ -50,6 +51,9 @@ bash scripts/final_check.sh
 ```
 
 - `test` 태스크는 `integration` 태그를 제외하고, `integrationTest` 태스크는 해당 태그만 실행한다(DB·Ollama 필요).
+- `integrationTest -PexcludeOllama`는 `ollama` 태그(실제 모델 호출)를 뺀다. CI가 이 방식으로 돈다.
+- `scripts/final_check.sh`는 DB를 초기화하기 전에 `eval_dump.sh`로 평가 결과를 내보내고 초기화 뒤 `eval_restore.sh`로 되살린다.
+- 심화 세트 평가는 `--eval.golden-path=../eval/golden_set_deep.json --eval.golden-hash-path=../eval/golden_set_deep.sha256`를 붙인다. `--eval.report-run-id=<id>`는 측정 없이 그 실행의 리포트만 다시 쓴다.
 - 평가 프로파일(`eval`)은 실행 후 `SpringApplication.exit`로 종료한다. 웹 서버를 띄우지 않는다(`spring.main.web-application-type=none`).
 
 ## 5. 코딩 규칙
@@ -70,7 +74,7 @@ bash scripts/final_check.sh
 3. 검증이 실패하면 원인을 고치고 재실행한다. 같은 원인으로 3번 실패하면 멈추고 보고한다.
 4. 자신이 낸 실수를 발견하면 `docs/ai-mistakes.md`에 한 줄(날짜, T번호, 실수, 원인)을 추가한다.
 5. T6의 `golden_set.json`은 사람이 작성한다. 임의로 문항을 만들거나 수정하지 않는다.
-6. 골든셋 해시 동결 이후 `eval/golden_set.json`, v0 프롬프트, 모델 설정을 변경하지 않는다.
+6. 골든셋 해시 동결 이후 `eval/golden_set.json`, v0 프롬프트, 모델 설정을 변경하지 않는다. 문항을 더하고 싶으면 `eval/golden_set_deep.json`처럼 별도 파일로 만들고 측정 전에 해시로 동결한다.
 
 ## 7. 금지
 

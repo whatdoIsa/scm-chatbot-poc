@@ -1,6 +1,8 @@
 # API 명세와 내부 계약
 
-버전 1.1 · PRD.md와 함께 읽는다. 이 문서는 외부 API, LLM 계약, 파일 포맷, DB 스키마, 자바 인터페이스, 설정 키의 단일 기준이다.
+버전 1.2 · PRD.md와 함께 읽는다. 이 문서는 외부 API, LLM 계약, 파일 포맷, DB 스키마, 자바 인터페이스, 설정 키의 단일 기준이다.
+
+1.2(2026-11-13): v3 계약을 8장에 추가했다. 1~7장은 v0~v2 기준이며, v3에서 달라지는 부분은 8장이 우선한다.
 
 ## 1. 공통
 
@@ -436,3 +438,246 @@ scm-ro:
 ```
 
 `.env` 키: `POSTGRES_DB=scm`, `POSTGRES_USER=scm_app`, `POSTGRES_PASSWORD`, `SCM_RO_PASSWORD`, 그리고 위 `APP_DB_*`, `SCM_RO_DB_*`. 실제 값은 `.env`에만 두고 `.env.example`에는 자리표시자만 둔다. 기본 provider는 `fake`이며 실제 측정은 `--chat.llm.provider=ollama`로 명시한다.
+
+## 8. v3 계약 (PRD 10장)
+
+v0~v2의 요청·응답·LLM 호출 본문은 바뀌지 않는다. 아래는 `promptVersion=v3`일 때 더해지는 것이다.
+
+### 8.1 POST /api/chat 추가 사항
+
+`ChatResponse` 추가 필드 (v0~v2에서는 모두 null)
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| route | string/null | 라우터가 고른 경로 `tool`, `sql`, `clarify`, `refuse`. 라우터 호출 실패·형식 오류면 null |
+| tool | object/null | 도구 경로일 때 `{"name": "days_of_supply", "args": {...}}`. args는 검증·정규화를 거친 값이고, 검증에 실패했으면 모델이 낸 원래 값 |
+| answer | string/null | 숫자 후검증을 통과한 답변 문장. 통과하지 못했거나 만들지 않았으면 null |
+| answerStatus | string/null | `VERIFIED`, `REJECTED`, `SKIPPED` |
+
+기존 필드의 v3 값
+
+| 필드 | v3 |
+| --- | --- |
+| action | `tool`이 더해진다. 도구로 조회했으면 `tool`, SQL로 조회했으면 `sql` |
+| status | `TOOL_REJECTED`(HTTP 422)가 더해진다. 도구 인자 검증 실패이며 message에 사유 |
+| sql | 도구 경로에서는 null |
+| attempts | LLM 호출 횟수 1~4 (라우터 1, SQL 생성 1, 재시도 1, 답변 문장 1) |
+| promptVersion | `v3` |
+
+`answerStatus`
+
+| 값 | 조건 |
+| --- | --- |
+| VERIFIED | 답변 문장의 숫자가 모두 허용 집합에 있다(PRD 10.5) |
+| REJECTED | 허용되지 않은 숫자가 있다. `answer`는 null이고 원문은 `chat_log.answer_text`에만 남긴다 |
+| SKIPPED | 결과가 0행이거나 `chat.answer-max-rows`를 넘거나 잘렸다. 또는 답변 호출이 실패했거나 형식이 틀렸거나 문장이 비어 있다 |
+
+예시: 도구 경로
+
+```json
+{
+  "action": "tool", "status": "OK", "message": null, "sql": null,
+  "columns": ["on_hand", "avg_daily_qty", "days_of_supply"], "rows": [[120, 9.6071, 12.4907]],
+  "rowCount": 1, "truncated": false,
+  "route": "tool",
+  "tool": {"name": "days_of_supply", "args": {"sku": "SKU-026", "location": "서울센터", "output": "value"}},
+  "answer": "서울센터 SKU-026의 재고보유일수는 약 12.5일입니다.", "answerStatus": "VERIFIED",
+  "asOfDate": "2026-11-08", "promptVersion": "v3", "model": "qwen2.5-coder:7b",
+  "attempts": 2, "elapsedMs": 5200, "chatLogId": 77
+}
+```
+
+(숫자는 형식 설명용이다.)
+
+### 8.2 LLM 출력 형식
+
+`LlmClient.generate(messages, format)`의 `format`이 Ollama 요청의 `format` 스키마를 정한다. `ACTION`은 3.1의 스키마 그대로다.
+
+`ROUTE` (라우터)
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "route": {"type": "string", "enum": ["tool", "sql", "clarify", "refuse"]},
+    "tool": {"type": "string", "enum": ["", "avg_daily_sales", "days_of_supply", "stockout_rate", "forecast_accuracy", "below_safety_stock", "reorder_needed"]},
+    "sku": {"type": "string"},
+    "location": {"type": "string"},
+    "days": {"type": "integer"},
+    "start_date": {"type": "string"},
+    "end_date": {"type": "string"},
+    "output": {"type": "string", "enum": ["", "value", "ranking", "list", "count"]},
+    "top_n": {"type": "integer"},
+    "order": {"type": "string", "enum": ["", "asc", "desc"]},
+    "message": {"type": "string"}
+  },
+  "required": ["route", "tool", "sku", "location", "days", "start_date", "end_date", "output", "top_n", "order", "message"]
+}
+```
+
+쓰지 않는 문자열은 `""`, 쓰지 않는 정수는 `0`으로 낸다.
+
+`ANSWER` (답변 문장)
+
+```json
+{"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
+```
+
+파싱 규칙 (`LlmOutputParser`)
+
+- 공통: 3.2와 같이 앞뒤 공백과 코드펜스를 떼고 JSON 객체 하나만 허용한다. 빈 문자열은 null로 본다.
+- `parseRoute`: 알 수 없는 route, 문자열이 아닌 문자열 필드, 정수가 아닌 정수 필드는 FORMAT_ERROR. route가 `clarify`·`refuse`인데 message가 비어 있으면 FORMAT_ERROR. route가 `tool`일 때 도구 이름과 인자의 값 검증은 파서가 아니라 `ToolArgsValidator`가 한다.
+- `parseAnswer`: answer가 문자열이 아니면 FORMAT_ERROR. 비어 있으면 null을 돌려준다.
+- `parse`(ACTION)는 `tool`을 알 수 없는 action으로 본다.
+
+### 8.3 프롬프트 파일
+
+| 파일 | 용도 | 플레이스홀더 |
+| --- | --- | --- |
+| `prompts/v3_router.txt` | 라우터 system 메시지. 질문이 달라져도 내용이 같다 | `{{AS_OF_DATE}}`, `{{DATE_RULES}}`, `{{TOOLS}}`, `{{ROUTER_FEWSHOT}}` |
+| `prompts/v3_answer.txt` | 답변 문장 system 메시지 | `{{AS_OF_DATE}}` |
+| `prompts/v1.txt` | v3의 SQL 생성 단계. 파일과 렌더링 결과 모두 v1과 같다 | 4.1 |
+
+- 라우터의 user 메시지는 질문 원문이다. 라우터 프롬프트에는 DDL을 넣지 않고, 테이블이 담는 데이터의 요약과 데이터 기간, 도구 목록, 경로 선택 규칙을 넣는다.
+- 답변 단계의 user 메시지는 질문, 결과 컬럼명, 결과 행을 담는다.
+
+```
+Question: {질문}
+Columns: {컬럼명을 쉼표로}
+Rows:
+{행마다 한 줄, 값은 " | "로 구분, NULL은 null}
+```
+
+- 지시문은 영어, 답변 문장은 한국어 1~2문장으로 쓰게 한다. 결과에 있는 값만 쓰고 새로 계산하지 말라고 지시한다.
+
+`prompts/tools.yml` (`{{TOOLS}}`로 렌더링)
+
+```yaml
+tools:
+  - name: days_of_supply
+    metric: 재고보유일수
+    description: "기준일 on_hand / (최근 28일 qty 합 / 28)"
+    args: [sku, location]
+    outputs: [value, ranking]
+```
+
+`prompts/router_fewshot.json` (세 골든셋과 겹치지 않음, 네 경로를 모두 포함)
+
+```json
+[{"question": "...", "output": {"route": "tool", "tool": "stockout_rate", "sku": "", "location": "대전센터", "days": 0, "start_date": "", "end_date": "", "output": "value", "top_n": 0, "order": "", "message": ""}}]
+```
+
+### 8.4 조회 도구
+
+인자 검증 (`ToolArgsValidator`). 하나라도 어기면 거부하고 사유를 돌려준다.
+
+1. 도구 이름이 6개 중 하나다.
+2. `sku`: 비어 있거나 `SKU-` 뒤에 숫자 1~3자리(대소문자 무시). `SKU-007` 형식으로 정규화하고 product에 있어야 한다.
+3. `location`: 비어 있거나 location.name과 정확히 같아야 한다.
+4. `output`: 도구가 허용하는 값이어야 한다(아래 표).
+5. `ranking`: `top_n` 1~50, `order`가 asc·desc, `sku`는 비어 있어야 한다.
+6. `avg_daily_sales`: `days` 1~91.
+7. `stockout_rate`: `start_date`, `end_date`는 둘 다 비어 있거나 둘 다 `yyyy-MM-dd`이고, 시작 ≤ 끝, `chat.data-start-date` ~ `chat.as-of-date` 안이어야 한다.
+8. 그 도구가 쓰지 않는 인자(다른 도구의 `days`·날짜, ranking이 아닐 때의 `top_n`·`order`)는 무시한다.
+
+결과 컬럼 (`QueryResult`)
+
+| 도구 | output | 컬럼 |
+| --- | --- | --- |
+| avg_daily_sales | value | `avg_daily_qty` |
+| avg_daily_sales | ranking | `sku`, `avg_daily_qty` |
+| days_of_supply | value | `on_hand`, `avg_daily_qty`, `days_of_supply` |
+| days_of_supply | ranking | `sku`, `days_of_supply` |
+| stockout_rate | value | `stockout_rate` |
+| stockout_rate | ranking | `sku`, `stockout_rate` |
+| forecast_accuracy | value | `accuracy` |
+| forecast_accuracy | ranking | `sku`, `accuracy` |
+| below_safety_stock | list | `sku`, `location_name`, `on_hand`, `safety_stock` |
+| below_safety_stock | count | `cnt` |
+| reorder_needed | list | `sku`, `location_name`, `on_hand`, `in_transit`, `reorder_point` |
+| reorder_needed | count | `cnt` |
+
+- value와 count는 항상 1행이다. 분모가 0이면 지표 값은 NULL이다.
+- ranking은 지표 값이 NULL인 품목을 빼고 `order` 방향으로 정렬하며 동점은 sku 오름차순이다.
+- list는 sku, location_name 오름차순이고 `chat.validator-limit`(200)에서 자른다. 상한을 채우면 `truncated=true`.
+- 쿼리는 `mapper/MetricToolMapper.xml`에 고정돼 있고, 인자는 `#{}` 바인딩으로만 들어간다. 정렬 방향처럼 바인딩할 수 없는 부분은 검증된 enum 값으로 XML의 `<choose>`가 고른다(`${}` 치환을 쓰지 않는다).
+- 실행은 scm_ro DataSource로 만든 별도 `SqlSessionFactory`가 맡는다. 문장 타임아웃 5초.
+
+### 8.5 DB 추가 컬럼 (`db/02_schema.sql`, 모두 NULL 허용)
+
+```sql
+-- app.chat_log, app.eval_result 공통
+route varchar(16),
+tool_name varchar(32),
+tool_args text,
+answer_text text,
+answer_status varchar(16),
+
+-- app.eval_run
+answer_verified_rate numeric(5,4)
+```
+
+- `tool_args`는 JSON 문자열이다. `answer_text`는 검증 결과와 무관하게 모델이 쓴 문장 원문이다.
+- `eval_run.answer_verified_rate`: `VERIFIED` ÷ (`VERIFIED` + `REJECTED`), 분모 0이면 NULL.
+- `eval_result.error_type`에 `TOOL_SELECTION`, `TOOL_ARGUMENT`가 더해진다.
+- 컬럼을 더한 뒤에는 `eval_dump.sh` → `db_reset.sh` → `eval_restore.sh` 순서로 기존 측정 결과를 옮긴다. `eval_data.sql`은 컬럼명을 적은 INSERT라 새 컬럼이 있어도 복원된다.
+
+### 8.6 자바 인터페이스 추가·변경
+
+| 패키지 | 타입 | 시그니처 |
+| --- | --- | --- |
+| llm | `OutputFormat` (enum) | `ACTION`, `ROUTE`, `ANSWER`. `Map<String, Object> schema()` |
+| llm | `LlmClient` | `LlmReply generate(List<LlmMessage> messages, OutputFormat format)` (기존 `generate(messages)`를 대체) |
+| llm | `LlmOutputParser` | `ParsedRoute parseRoute(String raw)`, `String parseAnswer(String raw)` 추가 |
+| llm | `ParsedRoute` (record) | `Route route, String tool, RawToolArgs args, String message` |
+| llm | `Route` (enum) | `TOOL`, `SQL`, `CLARIFY`, `REFUSE` |
+| llm | `Action` | `TOOL("tool")` 추가 |
+| tool | `ToolName` (enum), `ToolOutput` (enum) | 8.4의 도구 6개, `VALUE`·`RANKING`·`LIST`·`COUNT` |
+| tool | `RawToolArgs` (record) | `String sku, String location, int days, String startDate, String endDate, String output, int topN, String order` |
+| tool | `ToolCall` (record) | `ToolName tool, ToolOutput output, String sku, String location, Integer days, LocalDate startDate, LocalDate endDate, Integer topN, Boolean ascending` |
+| tool | `ToolArgsValidator` | `ToolValidation validate(String toolName, RawToolArgs raw)` → `ToolValidation(boolean ok, ToolCall call, String reason)` |
+| tool | `ToolExecutor` | `QueryResult execute(ToolCall call)` |
+| tool | `ToolCatalog` | `tools.yml`을 읽어 `String render()` |
+| mapper | `MetricToolMapper` (MyBatis, scm_ro) | 도구·출력 방식별 조회 메서드, `List<String> locationNames()`, `boolean skuExists(String sku)` |
+| config | `ScmRoMyBatisConfig` | scm_ro용 `SqlSessionFactory`. 기존 `EvalSummaryMapper`는 app DataSource를 그대로 쓴다 |
+| answer | `NumberVerifier` | `Verification verify(String answer, VerificationContext context)` → `Verification(boolean ok, List<String> unverified)` |
+| answer | `VerificationContext` (record) | `String question, QueryResult result, ToolCall toolCall, LocalDate asOfDate` |
+| answer | `AnswerStatus` (enum) | `VERIFIED`, `REJECTED`, `SKIPPED` |
+| prompt | `PromptVersion` | `V3("v3")` 추가 |
+| prompt | `PromptBuilder` | `List<LlmMessage> buildRouter(String question)`, `List<LlmMessage> buildAnswer(String question, QueryResult result)` 추가. `build(V3, …)`은 지원하지 않는다(SQL 단계는 `build(V1, …)`) |
+| service | `ChatStatus` | `TOOL_REJECTED` 추가 |
+| service | `ChatResult` | `Route route, ToolCall toolCall, String toolArgsJson, String answer, AnswerStatus answerStatus` 추가 |
+| eval | `ErrorType` | `TOOL_SELECTION`, `TOOL_ARGUMENT` 추가 |
+| eval | `Grader` | 정답이 sql인 문항은 action이 `sql`·`tool` 모두 결과 비교로 채점. `TOOL_REJECTED`는 `TOOL_ARGUMENT` |
+| mapper | `EvalSummaryMapper` | `List<RouteSummaryRow> routeSummaries(long runId)` 추가 |
+
+- `OllamaLlmClient`는 `format.schema()`를 요청의 `format`에 넣는다. `ACTION`의 요청 본문은 v0~v2 측정 때와 바이트 단위로 같아야 하며 테스트로 고정한다.
+- `FakeLlmClient`는 format과 무관하게 큐의 응답을 순서대로 돌려준다.
+- `OracleLlmClient`: `ROUTE`에는 정답 action에 맞춘 route(`sql`·`clarify`·`refuse`)를, `ACTION`에는 기존과 같은 응답을, `ANSWER`에는 빈 문장을 돌려준다. 그래서 oracle의 v3 평가는 SQL 경로만 지나가고 답변은 `SKIPPED`다. 도구의 정확성은 `MetricToolIT`가 확인한다.
+
+### 8.7 설정 키 추가
+
+```yaml
+chat:
+  data-start-date: 2026-08-10
+  answer-max-rows: 20
+```
+
+`chat.prompt-version`과 `eval.versions`가 `v3`을 받는다. 기본 `chat.prompt-version`은 v1 그대로다.
+
+### 8.8 GET /api/eval/summary 추가 필드
+
+실행마다 아래 두 필드가 더해진다. v0~v2 실행은 `answerVerifiedRate`가 null이고 `routes`는 빈 배열이다.
+
+```json
+{
+  "answerVerifiedRate": 0.9,
+  "routes": [{"route": "tool", "total": 9, "correct": 8}, {"route": "sql", "total": 15, "correct": 10}]
+}
+```
+
+`routes`의 route는 `eval_result.route` 값이고, NULL(라우터 실패)은 `none`으로 묶는다.
+
+### 8.9 `eval/golden_set_v3.json`
+
+4.5와 같은 형식이다. id는 Q51~Q70, 유형별 문항 수는 SIMPLE_LOOKUP 2, PERIOD_AGG 3, METRIC 7, RANKING 4, AMBIGUOUS 2, REFUSE 2. `eval/golden_set_v3.sha256`으로 동결한다.

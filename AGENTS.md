@@ -4,7 +4,7 @@ Claude Code는 이 파일을 먼저 읽는다. `CLAUDE.md`에는 `@AGENTS.md` �
 
 ## 1. 프로젝트
 
-한국어 SCM 질문을 LLM이 SQL·되묻기·거부로 바꾸고, 서버가 검증·읽기 전용 실행하는 챗봇 PoC. 산출물의 핵심은 30문항 골든셋 정확도 측정과 v0 → v2 비교다.
+한국어 SCM 질문을 LLM이 SQL·되묻기·거부로 바꾸고, 서버가 검증·읽기 전용 실행하는 챗봇 PoC. 산출물의 핵심은 30문항 골든셋 정확도 측정과 v0 → v2 비교다. `poc-freeze` 이후에는 v3(라우터 분리, 조회 도구, 답변 문장과 숫자 후검증)을 같은 방식으로 재서 더한다(PRD 10장, API_SPEC 8장).
 
 문서 우선순위: `docs/PRD.md`, `docs/API_SPEC.md`, 이 파일 > `SCM_챗봇_PoC_기획서.md`. 명세에 없는 것은 만들지 말고 질문한다.
 
@@ -28,10 +28,10 @@ scm-chatbot-poc/
   AGENTS.md  CLAUDE.md  README.md  docker-compose.yml  .env.example  .gitignore
   db/            01_roles.sh  02_schema.sql  03_seed.sql  04_grants.sql  verify/verify.sql
   scripts/       db_reset.sh  db_checksum.sh  verify_db.sh  eval_dump.sh  eval_restore.sh  final_check.sh
-  backend/       build.gradle  src/main/java/com/scmchat/{controller,service,llm,prompt,validator,executor,mapper,entity,repository,eval,config,dto}
+  backend/       build.gradle  src/main/java/com/scmchat/{controller,service,llm,prompt,validator,executor,mapper,entity,repository,eval,config,dto,tool,answer}
   frontend/      Vite 프로젝트
-  prompts/       v0.txt  v1.txt  v2.txt  metrics.yml  fewshot.json  schema_rules.yml
-  eval/          golden_set.json  golden_set.sha256  golden_set_deep.json  golden_set_deep.sha256  crosscheck.md  reports/
+  prompts/       v0.txt  v1.txt  v2.txt  metrics.yml  fewshot.json  schema_rules.yml  v3_router.txt  v3_answer.txt  tools.yml  router_fewshot.json
+  eval/          golden_set.json  golden_set.sha256  golden_set_deep.json  golden_set_deep.sha256  golden_set_v3.json  golden_set_v3.sha256  crosscheck.md  reports/
   .github/       workflows/ci.yml  pull_request_template.md
   docs/          PRD.md  API_SPEC.md  ai-mistakes.md
 ```
@@ -53,14 +53,16 @@ bash scripts/final_check.sh
 - `test` 태스크는 `integration` 태그를 제외하고, `integrationTest` 태스크는 해당 태그만 실행한다(DB·Ollama 필요).
 - `integrationTest -PexcludeOllama`는 `ollama` 태그(실제 모델 호출)를 뺀다. CI가 이 방식으로 돈다.
 - `scripts/final_check.sh`는 DB를 초기화하기 전에 `eval_dump.sh`로 평가 결과를 내보내고 초기화 뒤 `eval_restore.sh`로 되살린다.
-- 심화 세트 평가는 `--eval.golden-path=../eval/golden_set_deep.json --eval.golden-hash-path=../eval/golden_set_deep.sha256`를 붙인다. `--eval.report-run-id=<id>`는 측정 없이 그 실행의 리포트만 다시 쓴다.
+- 심화 세트 평가는 `--eval.golden-path=../eval/golden_set_deep.json --eval.golden-hash-path=../eval/golden_set_deep.sha256`를 붙인다. 홀드아웃 세트는 같은 방식으로 `golden_set_v3.json`, `golden_set_v3.sha256`을 준다. `--eval.report-run-id=<id>`는 측정 없이 그 실행의 리포트만 다시 쓴다.
+- v3 평가는 `--eval.versions=v3`. `db/02_schema.sql`을 고친 뒤에는 `bash scripts/eval_dump.sh && bash scripts/db_reset.sh && bash scripts/eval_restore.sh`로 측정 결과를 옮긴다.
 - 평가 프로파일(`eval`)은 실행 후 `SpringApplication.exit`로 종료한다. 웹 서버를 띄우지 않는다(`spring.main.web-application-type=none`).
 
 ## 5. 코딩 규칙
 
 - 계층: Controller → Service → Repository/Mapper/Executor. 컨트롤러에 비즈니스 로직 금지.
 - 생성자 주입만 사용한다(필드 주입 금지). 엔티티를 API 응답으로 반환하지 않는다(DTO 사용).
-- DataSource 2개: `app`은 `@Primary`(JPA, MyBatis, JdbcTemplate 기본), `scm-ro`는 `@Qualifier("scmRoJdbcTemplate")`로만 `ReadOnlySqlExecutor`가 사용한다. LLM이 만든 SQL은 이 경로 외로 실행하지 않는다.
+- DataSource 2개: `app`은 `@Primary`(JPA, MyBatis, JdbcTemplate 기본), `scm-ro`는 `@Qualifier("scmRoJdbcTemplate")`로 `ReadOnlySqlExecutor`가, 전용 `SqlSessionFactory`로 조회 도구(`MetricToolMapper`)가 사용한다. LLM이 만든 SQL은 `ReadOnlySqlExecutor` 외의 경로로 실행하지 않는다.
+- 조회 도구의 쿼리는 매퍼 XML에 고정한다. LLM이 준 값은 검증을 거쳐 `#{}` 바인딩으로만 넣고 `${}` 치환은 쓰지 않는다.
 - 트랜잭션: 서비스 계층에서만 선언. 읽기 전용 실행은 `Connection.setReadOnly(true)`, `setQueryTimeout(5)`, `setMaxRows(1000)`.
 - 비밀 값은 `.env` 환경변수로만 주입한다. 코드·로그·테스트 픽스처·README에 실제 값 금지.
 - 새 클래스는 API_SPEC 6장의 이름·시그니처를 따른다. 파일 간 연결(import, 빈 이름, 설정 키)이 명세와 다르면 명세를 고치지 말고 코드를 맞춘다.
@@ -75,18 +77,22 @@ bash scripts/final_check.sh
 4. 자신이 낸 실수를 발견하면 `docs/ai-mistakes.md`에 한 줄(날짜, T번호, 실수, 원인)을 추가한다.
 5. T6의 `golden_set.json`은 사람이 작성한다. 임의로 문항을 만들거나 수정하지 않는다.
 6. 골든셋 해시 동결 이후 `eval/golden_set.json`, v0 프롬프트, 모델 설정을 변경하지 않는다. 문항을 더하고 싶으면 `eval/golden_set_deep.json`처럼 별도 파일로 만들고 측정 전에 해시로 동결한다.
+7. `poc-freeze` 이후에는 `prompts/v0.txt`, `v1.txt`, `v2.txt`, `metrics.yml`, `fewshot.json`, `schema_rules.yml`과 v0~v2의 동작을 바꾸지 않는다. v3은 v1 프롬프트를 그대로 읽어 쓴다.
+8. v3 프롬프트, `tools.yml`, 라우터 예시는 v3을 실제 모델로 처음 잰 뒤에는 고치지 않는다. 고쳐서 다시 재려면 버전을 새로 만든다.
 
 ## 7. 금지
 
-- 범위 밖 기능(조회 도구 호출, 숫자 후검증, RAG, RLS, QueryDSL, 결과 문장 생성, 로그인)
+- 범위 밖 기능(RAG, RLS, QueryDSL, 로그인). 조회 도구 호출, 라우터, 결과 문장 생성, 숫자 후검증은 v3 경로에만 넣고 v0~v2에는 넣지 않는다
 - 유료·외부 LLM API 호출
 - LLM SQL을 `scm_ro` 외 계정으로 실행
-- 평가 결과를 보고 골든셋 정답·문항을 바꾸는 것
+- 평가 결과를 보고 골든셋 정답·문항을 바꾸는 것, 홀드아웃 세트의 문항을 보고 도구나 라우터 예시를 그 문항에 맞추는 것
 - 검증 명령 없이 "완료"라고 보고하는 것
 
 ## 8. 작업 목록
 
 의존 관계: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10. T11(React)은 T5 이후 아무 때나 시작할 수 있고, 모델 측정 대기 시간에 진행한다. T11의 README·동결 부분은 마지막에 한다.
+
+T0~T11은 `poc-freeze`로 끝났다. v3은 T12 → T13 → T14 → T15 → T16 → T17 순서다.
 
 ### T0. 환경 점검과 저장소 골격
 
@@ -325,6 +331,127 @@ git tag poc-freeze
 ```
 완료: `final_check.sh` exit 0, 빌드 성공, `.env` 미추적(`0`), 화면에서 3가지 시나리오 수동 확인, `poc-freeze` 태그 생성.
 
+### T12. v3 명세와 홀드아웃 세트
+
+참조: PRD 10장, API_SPEC 8장
+
+작업
+- PRD 10장, API_SPEC 8장, 이 파일의 T12~T17 작성
+- `eval/golden_set_v3.json` 20문항(Q51~Q70) 초안. 사용자가 검토한 뒤 `sha256sum eval/golden_set_v3.json > eval/golden_set_v3.sha256`으로 동결한다. 라우터 프롬프트, `tools.yml`, 라우터 예시는 이 동결 뒤에 쓴다
+- `.gitattributes`에 두 파일의 줄바꿈 변환 금지 추가
+
+검증
+```bash
+set -a; . ./.env; set +a
+sha256sum -c eval/golden_set.sha256 eval/golden_set_deep.sha256 eval/golden_set_v3.sha256
+cd backend && ./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v2 --eval.golden-path=../eval/golden_set_v3.json --eval.golden-hash-path=../eval/golden_set_v3.sha256 --eval.report-dir=build/eval-reports'
+```
+완료: 세 해시 `OK`, oracle 정확도 `20 / 20 = 1.0000`(정답 SQL이 모두 scm_ro로 실행되고 v2 검증기를 통과함), 유형별 문항 수 2/3/7/4/2/2, 기존 골든셋·few-shot과 질문이 겹치지 않음.
+
+### T13. 조회 도구 (MyBatis 고정 쿼리)
+
+참조: PRD 10.4, API_SPEC 8.4, 8.6
+
+작업
+- `prompts/tools.yml`, `ToolCatalog`, `ToolName`, `ToolOutput`, `RawToolArgs`, `ToolCall`, `ToolArgsValidator`, `ToolExecutor`
+- `ScmRoMyBatisConfig`(scm_ro용 `SqlSessionFactory`, 문장 타임아웃 5초), `MetricToolMapper`와 XML. 기존 `EvalSummaryMapper`는 app DataSource에 그대로 둔다
+- 설정 키 `chat.data-start-date`
+- 단위 테스트 `ToolArgsValidatorTest`: 통과 6개 이상(도구별 1개), 거부 10개 이상(모르는 도구, 잘못된 SKU 형식, 없는 SKU, 없는 거점, 도구가 허용하지 않는 output, ranking에 top_n 0, top_n 51, order 없음, ranking에 sku 지정, days 0, days 92, 날짜 한쪽만, 시작 > 끝, 범위 밖 날짜), SKU 정규화(`SKU-7` → `SKU-007`)
+- 통합 테스트 `MetricToolIT`: 도구 6개의 출력 방식 12가지가 테스트에 따로 쓴 참조 SQL의 결과와 일치, 분모 0 품목의 ranking 제외, 도구 쿼리가 scm_ro로 실행됨(`current_user`)
+
+검증
+```bash
+set -a; . ./.env; set +a
+cd backend && ./gradlew test integrationTest -PexcludeOllama
+```
+완료: 테스트 전부 통과. 앱이 두 `SqlSessionFactory`로 기동하고 `/api/eval/summary`가 전과 같이 응답한다.
+
+### T14. 라우터와 ChatService v3 분기
+
+참조: PRD 10.2, 10.6, API_SPEC 8.1~8.3, 8.5, 8.6
+
+작업
+- `OutputFormat`, `LlmClient.generate(messages, format)`, `Route`, `ParsedRoute`, `LlmOutputParser.parseRoute`, `Action.TOOL`, `PromptVersion.V3`
+- `prompts/v3_router.txt`, `prompts/router_fewshot.json`, `PromptBuilder.buildRouter`
+- `ChatService`의 v3 분기: 라우터 → 도구(검증·실행) / SQL(v1 프롬프트, 검증, 재시도) / clarify / refuse. `ChatStatus.TOOL_REJECTED`
+- `db/02_schema.sql`에 API_SPEC 8.5의 컬럼 전부 추가(답변 컬럼 포함), 엔티티에는 route·tool 컬럼만 매핑. `ChatResponse`의 `route`, `tool`
+- `Grader`(tool 채점, `TOOL_ARGUMENT` 자동 기록), `ErrorType`, `OracleLlmClient`의 `ROUTE`, `EvalReportWriter`(오답 표에 도구 호출 표시)
+- 단위 테스트: 파서(네 route, 형식 오류 5종 이상), `OllamaLlmClientTest`(ACTION 요청 본문이 이전과 같음, ROUTE 스키마), `ChatServiceTest`(v3 네 경로, TOOL_REJECTED, 라우터 형식 오류, SQL 단계가 clarify를 낸 경우, 재시도), `GraderTest`(tool 정답·오답), `GoldenSetIT`(라우터 예시가 세 골든셋과 겹치지 않음)
+- CI의 oracle 점검에 v3과 홀드아웃 세트 추가
+
+검증
+```bash
+set -a; . ./.env; set +a
+bash scripts/eval_dump.sh && bash scripts/db_reset.sh && bash scripts/eval_restore.sh
+cd backend && ./gradlew test integrationTest
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v0,v1,v2,v3 --eval.report-dir=build/eval-reports'
+./gradlew bootRun --args='--chat.llm.provider=ollama --chat.prompt-version=v3' > /tmp/boot.log 2>&1 &
+sleep 25
+for q in 'SKU-012의 재고보유일수는?' '부산센터 SKU-003의 리드타임은?' '재고 어때?' 'SKU-007 재고를 0으로 바꿔줘'; do
+  curl -s -X POST localhost:8080/api/chat -H 'Content-Type: application/json' -d "{\"question\":\"$q\"}"; echo
+done
+kill %1; lsof -ti tcp:8080 | xargs kill
+```
+완료: 테스트 통과, oracle 네 버전 모두 `30 / 30`, curl 4건이 API_SPEC 8.1 형식(`promptVersion":"v3"`, `route` 포함). 모델이 고른 경로가 기대와 달라도 통과다(정확성은 T16에서 잰다). 여기까지가 카테고리 6의 PR이다.
+
+### T15. 답변 문장과 숫자 후검증
+
+참조: PRD 10.5, API_SPEC 8.1~8.3, 8.6
+
+작업
+- `prompts/v3_answer.txt`, `PromptBuilder.buildAnswer`, `LlmOutputParser.parseAnswer`
+- `NumberVerifier`, `VerificationContext`, `AnswerStatus`, 설정 키 `chat.answer-max-rows`
+- `ChatService`의 답변 단계(v3에서 결과가 1~20행이고 잘리지 않았을 때), 엔티티에 `answer_text`, `answer_status`, `answer_verified_rate` 매핑, `ChatResponse`의 `answer`, `answerStatus`
+- 단위 테스트 `NumberVerifierTest`: 통과 6개 이상(정수 그대로, 천 단위 쉼표, 반올림, 버림, 비율의 백분율, 질문의 숫자, 날짜, 행 수·순위, 식별자 안의 숫자 무시, 숫자 없는 문장), 거부 6개 이상(없는 숫자, 두 셀을 더한 값, 1 차이, 올림, 단위 환산, 백분율 오용). `ChatServiceTest`(VERIFIED, REJECTED면 answer null이고 원문 저장, SKIPPED 조건 3종, 답변 호출 실패가 조회 결과를 버리지 않음)
+
+검증
+```bash
+set -a; . ./.env; set +a
+cd backend && ./gradlew test integrationTest
+./gradlew bootRun --args='--chat.llm.provider=ollama --chat.prompt-version=v3' > /tmp/boot.log 2>&1 &
+sleep 25
+for q in 'SKU-012의 재고보유일수는?' '부산센터 SKU-003의 리드타임은?'; do
+  curl -s -X POST localhost:8080/api/chat -H 'Content-Type: application/json' -d "{\"question\":\"$q\"}"; echo
+done
+docker compose exec -T db psql -U scm_app -d scm -Atc "select route, tool_name, answer_status, left(answer_text, 60) from app.chat_log order by id desc limit 2"
+kill %1; lsof -ti tcp:8080 | xargs kill
+```
+완료: 테스트 통과, 두 응답에 `answerStatus`가 있고 `chat_log`에 문장 원문이 남는다.
+
+### T16. v3 측정과 오답 분류
+
+작업
+- `EvalRunner`·`EvalReportWriter`·`EvalSummaryMapper`: 경로별 문항 수·정답 수, 숫자 검증 통과율, 거부된 문장 목록
+- v3을 기본 30, 심화 20, 홀드아웃 20문항으로 1회씩 측정. 홀드아웃은 v0·v1·v2도 1회씩 측정
+- 오답에 `error_type` 지정(미분류 0건 목표), `eval/reports/run-*-error-types.sql`로 기록, `scripts/eval_dump.sh`
+- 측정한 뒤에는 v3 프롬프트·도구·예시를 고치지 않는다
+
+검증
+```bash
+set -a; . ./.env; set +a
+cd backend && ./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v3'
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v3 --eval.golden-path=../eval/golden_set_deep.json --eval.golden-hash-path=../eval/golden_set_deep.sha256'
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v0,v1,v2,v3 --eval.golden-path=../eval/golden_set_v3.json --eval.golden-hash-path=../eval/golden_set_v3.sha256'
+docker compose exec -T db psql -U scm_app -d scm -Atc "select count(*) from app.eval_result r join app.eval_run e on e.id = r.run_id where e.prompt_version = 'v3' and e.model <> 'oracle' and not r.correct and r.error_type is null"
+```
+완료: v3 실행 3개와 홀드아웃의 v0~v2 실행 3개가 저장되고, 모든 실행의 model·temperature·seed가 v0~v2 측정과 같다. v3 실행의 미분류 오답 0건. 요약 API에 경로별 집계와 `answerVerifiedRate`가 나온다.
+
+### T17. 화면, README, v3 동결
+
+작업
+- `frontend/`: 답변 문장과 검증 표시(`REJECTED`·`SKIPPED`면 표만), 도구 경로의 근거(도구 이름과 인자), `TOOL_REJECTED` 표시
+- `README.md`: v3 설계, 결과표(세 세트 × v0~v3, 경로별 정확도, 숫자 검증 통과율), 오답 사례, 한계(PRD 10.8)
+- `scripts/final_check.sh`에 홀드아웃 해시 확인 추가
+
+검증
+```bash
+set -a; . ./.env; set +a
+bash scripts/final_check.sh
+cd frontend && npx tsc --noEmit && npm run build
+git tag v3-freeze
+```
+완료: `final_check.sh` exit 0, 빌드 성공, 화면에서 도구·SQL·되묻기·거부 네 경로 수동 확인, `v3-freeze` 태그 생성. 여기까지가 카테고리 7의 PR이다.
+
 ## 9. 일정과 T 매핑
 
 | 날짜 | T | 그날의 완료 기준 |
@@ -335,3 +462,13 @@ git tag poc-freeze
 | 일 11/15 | T10, T11 마무리 | v2 점수표, README, `poc-freeze` |
 
 막히면 버리는 순서: T11 화면 → T10 → 골든셋 문항 수(30 → 20, 이 경우 PRD 3장 FR-08 수치와 GoldenSetIT 기대값을 함께 수정). T0~T9는 끝까지 남긴다.
+
+v3 일정 (마감은 같은 11/15 일요일 밤)
+
+| 날짜 | T | 그날의 완료 기준 |
+| --- | --- | --- |
+| 금 11/13 | T12, T13, T14 | 홀드아웃 동결, 도구 통합 테스트 통과, oracle v3 30/30, 카테고리 6 PR |
+| 토 11/14 | T15, T16 | 숫자 후검증 테스트 통과, v3 점수표 |
+| 일 11/15 | T17 | README, `v3-freeze`, 카테고리 7 PR |
+
+v3에서 막히면 버리는 순서: T17 화면 → T15(답변 문장과 후검증) → 홀드아웃의 v0·v2 측정. T13, T14, T16의 v3 측정은 끝까지 남긴다.

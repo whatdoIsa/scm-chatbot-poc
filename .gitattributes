@@ -1,0 +1,3 @@
+eval/golden_set.json -text
+eval/golden_set.sha256 -text
+prompts/v0.txt -text

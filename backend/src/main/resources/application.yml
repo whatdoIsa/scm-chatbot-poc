@@ -9,6 +9,9 @@ spring:
       hibernate:
         default_schema: app
 
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+
 chat:
   prompt-version: v1
   as-of-date: 2026-11-08

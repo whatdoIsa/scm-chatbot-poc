@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      SCM_RO_PASSWORD: ${SCM_RO_PASSWORD:?}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # 초기화 중의 임시 서버는 유닉스 소켓만 열므로 TCP로 확인해야 초기화 스크립트 완료 후에 healthy가 된다.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U scm_app -d scm"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:

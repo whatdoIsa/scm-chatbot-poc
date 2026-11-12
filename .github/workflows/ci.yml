@@ -1,0 +1,85 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Create .env with throwaway passwords
+        run: |
+          app_pw=$(openssl rand -hex 16)
+          ro_pw=$(openssl rand -hex 16)
+          {
+            echo "POSTGRES_DB=scm"
+            echo "POSTGRES_USER=scm_app"
+            echo "POSTGRES_PASSWORD=$app_pw"
+            echo "SCM_RO_PASSWORD=$ro_pw"
+            echo "APP_DB_URL=jdbc:postgresql://localhost:5432/scm"
+            echo "APP_DB_USER=scm_app"
+            echo "APP_DB_PASSWORD=$app_pw"
+            echo "SCM_RO_DB_URL=jdbc:postgresql://localhost:5432/scm"
+            echo "SCM_RO_DB_USER=scm_ro"
+            echo "SCM_RO_DB_PASSWORD=$ro_pw"
+          } > .env
+      - name: Frozen golden set hashes
+        run: sha256sum -c eval/golden_set.sha256 eval/golden_set_deep.sha256
+      - name: Start database and verify seed
+        run: |
+          bash scripts/db_reset.sh
+          bash scripts/verify_db.sh
+          bash scripts/db_checksum.sh | diff - db/verify/checksum.expected
+      - name: Unit tests
+        working-directory: backend
+        run: ./gradlew test --console=plain
+      - name: Integration tests (database only, no Ollama)
+        working-directory: backend
+        run: |
+          set -a; . ../.env; set +a
+          ./gradlew integrationTest -PexcludeOllama --console=plain
+      - name: Grader self-check with the oracle provider
+        working-directory: backend
+        run: |
+          set -o pipefail
+          set -a; . ../.env; set +a
+          ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v0,v1,v2 --eval.report-dir=build/eval-reports' | tee oracle.log
+          test "$(grep -c '^| 정확도 | 30 / 30 = 1.0000 |' oracle.log)" = "3"
+          ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v2 --eval.golden-path=../eval/golden_set_deep.json --eval.golden-hash-path=../eval/golden_set_deep.sha256 --eval.report-dir=build/eval-reports' | tee oracle-deep.log
+          test "$(grep -c '^| 정확도 | 20 / 20 = 1.0000 |' oracle-deep.log)" = "1"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-reports
+          path: |
+            backend/build/reports/tests
+            backend/build/eval-reports
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: |
+          npm ci
+          npx tsc -b
+          npm run lint
+          npm run build

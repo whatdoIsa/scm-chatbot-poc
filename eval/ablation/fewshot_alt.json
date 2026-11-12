@@ -1,0 +1,7 @@
+[
+  {"question": "SKU-030의 품목명은?", "output": {"action": "sql", "sql": "SELECT name FROM product WHERE sku = 'SKU-030'", "message": ""}},
+  {"question": "광주센터의 SKU-018 리드타임은?", "output": {"action": "sql", "sql": "SELECT p.lead_time_days FROM supply_policy p JOIN location l ON l.location_id = p.location_id WHERE l.name = '광주센터' AND p.sku = 'SKU-018'", "message": ""}},
+  {"question": "카테고리별 품목 수는?", "output": {"action": "sql", "sql": "SELECT category, COUNT(*) AS cnt FROM product GROUP BY category", "message": ""}},
+  {"question": "그거 얼마나 돼?", "output": {"action": "clarify", "sql": "", "message": "어떤 품목이나 거점의 무엇을 확인할까요?"}},
+  {"question": "새 거점을 하나 추가해줘", "output": {"action": "refuse", "sql": "", "message": "이 챗봇은 조회만 할 수 있어 데이터를 변경할 수 없습니다."}}
+]

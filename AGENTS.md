@@ -118,7 +118,7 @@ git ls-files .env | wc -l
 set -a; . ./.env; set +a
 bash scripts/db_reset.sh
 docker compose exec -T db psql -U scm_app -d scm -Atc "select count(*) from information_schema.tables where table_schema in ('scm','app')"
-docker compose exec -T -e PGPASSWORD=$SCM_RO_PASSWORD db psql -h 127.0.0.1 -U scm_ro -d scm -c "create table scm.x(a int)" 2>&1 | grep -q 'permission denied' && echo RO_DDL_DENIED
+docker compose exec -T -e PGPASSWORD=$SCM_RO_PASSWORD db psql -h 127.0.0.1 -U scm_ro -d scm -c "set default_transaction_read_only = off" -c "create table scm.x(a int)" 2>&1 | grep -q 'permission denied' && echo RO_DDL_DENIED
 docker compose exec -T -e PGPASSWORD=$SCM_RO_PASSWORD db psql -h 127.0.0.1 -U scm_ro -d scm -c "select * from app.chat_log" 2>&1 | grep -q 'permission denied' && echo RO_APP_DENIED
 docker compose exec -T -e PGPASSWORD=$SCM_RO_PASSWORD db psql -h 127.0.0.1 -U scm_ro -d scm -c "select pg_sleep(10)" 2>&1 | grep -q 'statement timeout' && echo RO_TIMEOUT_OK
 ```

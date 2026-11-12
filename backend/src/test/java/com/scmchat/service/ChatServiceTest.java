@@ -142,7 +142,7 @@ class ChatServiceTest {
 
         assertThat(result.action()).isNull();
         assertThat(result.status()).isEqualTo(ChatStatus.LLM_UNAVAILABLE);
-        assertThat(result.message()).contains("Connection refused");
+        assertThat(result.message()).isEqualTo("LLM server is unavailable");
         assertThat(result.promptTokens()).isZero();
         assertThat(result.completionTokens()).isZero();
         verify(executor, never()).execute(any());

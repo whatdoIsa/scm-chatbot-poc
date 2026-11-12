@@ -17,6 +17,8 @@ import com.scmchat.prompt.PromptVersion;
 import com.scmchat.repository.ChatLogRepository;
 import java.time.Duration;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -25,6 +27,9 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class ChatService {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
+    private static final String LLM_UNAVAILABLE_MESSAGE = "LLM server is unavailable";
 
     private final PromptBuilder promptBuilder;
     private final LlmClient llmClient;
@@ -49,8 +54,9 @@ public class ChatService {
         try {
             reply = llmClient.generate(messages);
         } catch (LlmUnavailableException e) {
+            log.warn("LLM call failed", e);
             return record(question, version, startedAt, null,
-                    new Outcome(null, ChatStatus.LLM_UNAVAILABLE, e.getMessage(), null, null));
+                    new Outcome(null, ChatStatus.LLM_UNAVAILABLE, LLM_UNAVAILABLE_MESSAGE, null, null));
         }
         return record(question, version, startedAt, reply, interpret(reply));
     }

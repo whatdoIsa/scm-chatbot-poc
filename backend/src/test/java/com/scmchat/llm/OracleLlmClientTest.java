@@ -31,7 +31,7 @@ class OracleLlmClientTest {
     @BeforeEach
     void setUp(@TempDir Path dir) throws IOException {
         Path golden = Files.writeString(dir.resolve("golden_set.json"), GOLDEN);
-        EvalProperties properties = new EvalProperties(golden.toString(), "unused", "unused", List.of("v0"), 1);
+        EvalProperties properties = new EvalProperties(golden.toString(), "unused", "unused", List.of("v0"), 1, null);
         client = new OracleLlmClient(new GoldenSetLoader(), properties, new ObjectMapper());
     }
 

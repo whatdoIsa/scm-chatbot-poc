@@ -14,5 +14,6 @@ public record EvalProperties(
         @NotBlank String goldenHashPath,
         @NotBlank String reportDir,
         @NotEmpty List<String> versions,
-        @Min(1) int repeat) {
+        @Min(1) int repeat,
+        Long reportRunId) {
 }

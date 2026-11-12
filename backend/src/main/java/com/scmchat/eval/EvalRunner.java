@@ -30,6 +30,7 @@ import org.springframework.stereotype.Component;
 /**
  * eval 프로파일에서 골든셋 전체를 채점한다. 동결된 해시와 골든셋이 다르면 시작하지 않는다.
  * 문항은 HTTP를 거치지 않고 ChatService.answer로 직접 처리하며, 끝나면 애플리케이션을 종료한다.
+ * eval.report-run-id가 있으면 측정하지 않고 그 실행의 리포트만 DB의 현재 값(사람이 붙인 error_type 포함)으로 다시 쓴다.
  */
 @Component
 @Profile("eval")
@@ -70,6 +71,11 @@ public class EvalRunner implements ApplicationRunner {
         String goldenSha256 = GoldenSetHash.verify(goldenFile, Path.of(evalProperties.goldenHashPath()));
         List<GoldenItem> items = goldenSetLoader.load(goldenFile);
 
+        if (evalProperties.reportRunId() != null) {
+            rewriteReport(evalProperties.reportRunId(), items);
+            SpringApplication.exit(applicationContext, () -> 0);
+            return;
+        }
         for (String versionValue : evalProperties.versions()) {
             PromptVersion version = PromptVersion.fromValue(versionValue);
             for (int repeatNo = 1; repeatNo <= evalProperties.repeat(); repeatNo++) {
@@ -79,14 +85,36 @@ public class EvalRunner implements ApplicationRunner {
         SpringApplication.exit(applicationContext, () -> 0);
     }
 
+    private void rewriteReport(long runId, List<GoldenItem> items) {
+        EvalRun run = evalRunRepository.findById(runId)
+                .orElseThrow(() -> new IllegalArgumentException("no eval_run with id " + runId));
+        reportWriter.write(run, evalResultRepository.findByRun_IdOrderByQuestionId(runId), items);
+    }
+
     private void runOnce(PromptVersion version, int repeatNo, String goldenSha256, List<GoldenItem> items) {
         ChatProperties.Llm llm = chatProperties.llm();
         EvalRun run = evalRunRepository.save(new EvalRun(version.value(), llmClient.modelName(),
                 BigDecimal.valueOf(llm.temperature()), llm.seed(), repeatNo, goldenSha256, OffsetDateTime.now()));
-
         List<EvalResult> results = new ArrayList<>();
+        try {
+            gradeAll(run, version, items, results);
+        } catch (RuntimeException e) {
+            // 중단된 실행이 측정 결과처럼 남지 않게 지운다.
+            evalResultRepository.deleteAll(results);
+            evalRunRepository.delete(run);
+            throw e;
+        }
+        summarize(run, results);
+        reportWriter.write(run, results, items);
+    }
+
+    private void gradeAll(EvalRun run, PromptVersion version, List<GoldenItem> items, List<EvalResult> results) {
         for (GoldenItem item : items) {
             ChatResult actual = chatService.answer(item.question(), version);
+            if (actual.status() == ChatStatus.LLM_UNAVAILABLE) {
+                throw new IllegalStateException(
+                        "LLM is unavailable at " + item.id() + "; the run is aborted and not recorded");
+            }
             QueryResult expected = item.expectedAction() == Action.SQL ? executor.execute(item.goldenSql()) : null;
             GradeResult grade = grader.grade(item, actual, expected);
             results.add(evalResultRepository.save(new EvalResult(
@@ -105,7 +133,9 @@ public class EvalRunner implements ApplicationRunner {
                     actual.elapsedMs(),
                     grade.detail())));
         }
+    }
 
+    private void summarize(EvalRun run, List<EvalResult> results) {
         int total = results.size();
         int correct = (int) results.stream().filter(EvalResult::isCorrect).count();
         long sqlAnswers = results.stream().filter(result -> "sql".equals(result.getActualAction())).count();
@@ -121,7 +151,6 @@ public class EvalRunner implements ApplicationRunner {
         run.complete(OffsetDateTime.now(), total, correct, ratio(correct, total),
                 sqlAnswers == 0 ? null : ratio(sqlExecuted, sqlAnswers), ratio(formatOk, total), avgElapsedMs);
         evalRunRepository.save(run);
-        reportWriter.write(run, results, items);
     }
 
     private static BigDecimal ratio(long numerator, long denominator) {

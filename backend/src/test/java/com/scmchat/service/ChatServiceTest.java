@@ -200,7 +200,7 @@ class ChatServiceTest {
 
     @Test
     void propagatesUnsupportedPromptVersion() {
-        assertThatThrownBy(() -> service.answer(QUESTION, PromptVersion.V1))
+        assertThatThrownBy(() -> service.answer(QUESTION, PromptVersion.V2))
                 .isInstanceOf(UnsupportedOperationException.class);
         verify(chatLogRepository, never()).save(any());
     }

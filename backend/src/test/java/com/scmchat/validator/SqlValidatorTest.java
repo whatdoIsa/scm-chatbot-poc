@@ -24,7 +24,13 @@ class SqlValidatorTest {
             "SELECT sku FROM product WHERE name = 'delete; drop -- /* update */ pg_sleep'",
             "SELECT s.sku FROM sales_daily s WHERE EXISTS (SELECT 1 FROM supply_policy p WHERE p.sku = s.sku)",
             "SELECT region FROM location UNION SELECT category FROM product",
-            "SELECT 1 - SUM(ABS(f.forecast_qty - 10))::numeric / NULLIF(SUM(f.forecast_qty), 0) FROM forecast_weekly f"
+            "SELECT 1 - SUM(ABS(f.forecast_qty - 10))::numeric / NULLIF(SUM(f.forecast_qty), 0) FROM forecast_weekly f",
+            "SELECT sku, SUM(qty) AS \"판매량\" FROM sales_daily WHERE sale_date >= DATE '2026-11-02' GROUP BY sku",
+            "SELECT EXTRACT(ISODOW FROM sale_date) AS dow, AVG(qty) FROM sales_daily GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('week', sale_date)::date AS wk, SUM(qty) FILTER (WHERE qty > 0) FROM sales_daily GROUP BY 1",
+            "SELECT sku FROM product WHERE sku IN (SELECT sku FROM supply_policy WHERE lead_time_days = 7)",
+            "SELECT COALESCE(SUM(qty), 0)::numeric / 28 FROM sales_daily WHERE sku = 'It''s'",
+            "SELECT sku, LAG(qty) OVER (PARTITION BY sku ORDER BY sale_date) FROM sales_daily WHERE location_id = 'LOC-01'"
     })
     void acceptsReadOnlySelects(String sql) {
         ValidationResult result = validator.validate(sql);
@@ -66,6 +72,17 @@ class SqlValidatorTest {
             "EXPLAIN ANALYZE SELECT * FROM product",
             "COPY product TO '/tmp/x'",
             "SELECT * FROM product WHERE",
+            "SELECT E'\\'' || (SELECT string_agg(rolname, ',') FROM pg_roles) --'",
+            "SELECT $$'$$ || pg_sleep(4) || $$'$$",
+            "SELECT $q$x$q$ FROM product",
+            "SELECT U&\"\\0070g_sleep\"(4)",
+            "SELECT repeat('x', 900000000)",
+            "SELECT version()",
+            "SELECT current_user",
+            "SELECT inet_server_addr()",
+            "SELECT has_table_privilege('scm_ro', 'app.chat_log', 'SELECT')",
+            "SELECT * FROM generate_series(1, 100000000)",
+            "SELECT nextval('app.chat_log_id_seq')",
             "",
             "   "
     })
@@ -75,6 +92,13 @@ class SqlValidatorTest {
         assertThat(result.ok()).isFalse();
         assertThat(result.reason()).isNotBlank();
         assertThat(result.sql()).isEqualTo(sql);
+    }
+
+    @Test
+    void reportsWhetherItAppliedTheLimit() {
+        assertThat(validator.validate("SELECT sku FROM product").limitApplied()).isTrue();
+        assertThat(validator.validate("SELECT sku FROM product LIMIT 500").limitApplied()).isTrue();
+        assertThat(validator.validate("SELECT sku FROM product LIMIT 50").limitApplied()).isFalse();
     }
 
     @Test
@@ -111,6 +135,14 @@ class SqlValidatorTest {
                 "WITH d AS (SELECT sku FROM product ORDER BY sku LIMIT 5) SELECT sku FROM d").sql();
 
         assertThat(sql).contains("LIMIT 5)").endsWith("LIMIT 200");
+    }
+
+    @Test
+    void capsLimitThatOverflowsLong() {
+        ValidationResult result = validator.validate("SELECT sku FROM product LIMIT 99999999999999999999");
+
+        assertThat(result.ok() ? result.sql() : "rejected").isIn("rejected", "SELECT sku FROM product LIMIT 200");
+        assertThat(result.reason() == null || !result.reason().isBlank()).isTrue();
     }
 
     @Test

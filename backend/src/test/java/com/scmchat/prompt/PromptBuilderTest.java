@@ -62,12 +62,6 @@ class PromptBuilderTest {
     }
 
     @Test
-    void v2IsNotImplementedYet() {
-        assertThatThrownBy(() -> builder.build(PromptVersion.V2, QUESTION))
-                .isInstanceOf(UnsupportedOperationException.class);
-    }
-
-    @Test
     void v1ContainsAsOfDateAndForbidsClockFunctions() {
         String system = builder.build(PromptVersion.V1, QUESTION).get(0).content();
 
@@ -135,10 +129,53 @@ class PromptBuilderTest {
     }
 
     @Test
-    void supportsV0AndV1() {
-        assertThat(builder.supports(PromptVersion.V0)).isTrue();
-        assertThat(builder.supports(PromptVersion.V1)).isTrue();
-        assertThat(builder.supports(PromptVersion.V2)).isFalse();
+    void v2ContainsOnlyTablesAndMetricsRelevantToTheQuestion() {
+        String system = builder.build(PromptVersion.V2, "SKU-008의 최근 13주 예측 정확도는?").get(0).content();
+
+        assertThat(system).contains("CREATE TABLE forecast_weekly (", "CREATE TABLE sales_daily (",
+                "CREATE TABLE product (", "CREATE TABLE location (", "- 예측 정확도: ");
+        assertThat(system).doesNotContain("CREATE TABLE supply_policy (", "CREATE TABLE inventory_daily (",
+                "- 재고보유일수: ", "- 결품률: ");
+        assertThat(system).contains("The as-of date (\"today\") is 2026-11-08", "- 지난주: ");
+        assertThat(system.split("\nQuestion: ", -1)).hasSize(6);
+        assertThat(system).doesNotContain("{{", "}}");
+    }
+
+    @Test
+    void v2FallsBackToFullSchemaWhenNoKeywordMatches() {
+        String system = builder.build(PromptVersion.V2, "안녕하세요").get(0).content();
+
+        assertThat(system).contains("CREATE TABLE product (", "CREATE TABLE supply_policy (",
+                "CREATE TABLE forecast_weekly (", "CREATE TABLE inventory_daily (");
+    }
+
+    @Test
+    void v2AddsTablesNeededByTheMentionedMetric() {
+        assertThat(builder.tablesFor("결품률이 높은 곳은?"))
+                .contains("inventory_daily", "product", "location");
+        assertThat(builder.tablesFor("일평균 판매량은?")).contains("sales_daily");
+    }
+
+    @Test
+    void buildsRetryMessagesFromPriorConversation() {
+        List<LlmMessage> prior = builder.build(PromptVersion.V2, QUESTION);
+
+        List<LlmMessage> retry = builder.buildRetry(prior, "{\"action\":\"sql\"}", "ERROR: column \"x\" does not exist");
+
+        assertThat(retry).hasSize(4);
+        assertThat(retry.subList(0, 2)).isEqualTo(prior);
+        assertThat(retry.get(2)).isEqualTo(LlmMessage.assistant("{\"action\":\"sql\"}"));
+        assertThat(retry.get(3)).isEqualTo(LlmMessage.user("The previous SQL failed with this PostgreSQL error:\n"
+                + "ERROR: column \"x\" does not exist\nReturn the corrected JSON in the same format."));
+    }
+
+    @Test
+    void rejectsUnknownConfiguredVersionAtStartup() {
+        ChatProperties.Llm llm = new ChatProperties.Llm(
+                "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
+        ChatProperties properties = new ChatProperties("v9", LocalDate.of(2026, 11, 8), 1000, 200, "../prompts", llm);
+
+        assertThatThrownBy(() -> new PromptBuilder(properties)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

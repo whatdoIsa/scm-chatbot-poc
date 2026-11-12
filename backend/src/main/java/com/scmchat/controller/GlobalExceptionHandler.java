@@ -31,12 +31,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(new ErrorResponse(INVALID_REQUEST, "request body must be JSON"));
     }
 
-    @ExceptionHandler(UnsupportedOperationException.class)
-    public ResponseEntity<ErrorResponse> handleNotImplemented(UnsupportedOperationException e) {
-        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
-                .body(new ErrorResponse("NOT_IMPLEMENTED", e.getMessage()));
-    }
-
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception e) {
         // 404, 405처럼 Spring MVC가 상태 코드를 정한 예외는 그 코드를 유지한다.

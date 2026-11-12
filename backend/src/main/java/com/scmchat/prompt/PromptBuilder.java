@@ -8,26 +8,27 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /** prompts/v{n}.txt를 system 메시지로, 질문 원문을 user 메시지로 조립한다(API_SPEC 4.1). */
 @Component
 public class PromptBuilder {
 
-    private static final Logger log = LoggerFactory.getLogger(PromptBuilder.class);
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{[A-Z_]+}}");
 
     private final Path promptsDir;
     private final LocalDate asOfDate;
     private MetricsDictionary metricsDictionary;
     private FewShotLoader fewShotLoader;
+    private SchemaSelector schemaSelector;
 
     public PromptBuilder(ChatProperties chatProperties) {
         this.promptsDir = Path.of(chatProperties.promptsDir());
@@ -37,36 +38,50 @@ public class PromptBuilder {
             throw new IllegalStateException(
                     "chat.prompts-dir is not a directory: " + promptsDir.toAbsolutePath().normalize());
         }
-        PromptVersion configured = PromptVersion.fromValue(chatProperties.promptVersion());
-        if (!supports(configured)) {
-            log.warn("chat.prompt-version={} is not implemented yet; /api/chat will answer 501 until it is",
-                    configured.value());
-        }
-    }
-
-    public boolean supports(PromptVersion version) {
-        return version == PromptVersion.V0 || version == PromptVersion.V1;
+        // 잘못된 chat.prompt-version은 첫 요청이 아니라 기동할 때 드러나게 한다.
+        PromptVersion.fromValue(chatProperties.promptVersion());
     }
 
     public List<LlmMessage> build(PromptVersion version, String question) {
-        if (!supports(version)) {
-            throw new UnsupportedOperationException("prompt version " + version.value() + " is not implemented yet");
-        }
         String template = readTemplate(version);
         String system = version == PromptVersion.V0 ? template : render(template, valuesFor(version, question));
         return List.of(LlmMessage.system(requireNoPlaceholder(system, version)), LlmMessage.user(question));
     }
 
-    /** v0는 DDL이 파일에 고정돼 있어 채울 값이 없다. v1은 전체 스키마와 전체 지표 사전을 넣는다. */
+    /** v2의 실행 오류 재시도 메시지(API_SPEC 3.3). 이전 대화에 모델의 원문과 PostgreSQL 오류를 덧붙인다. */
+    public List<LlmMessage> buildRetry(List<LlmMessage> prior, String rawReply, String error) {
+        List<LlmMessage> messages = new ArrayList<>(prior);
+        messages.add(LlmMessage.assistant(rawReply));
+        messages.add(LlmMessage.user("The previous SQL failed with this PostgreSQL error:\n" + error
+                + "\nReturn the corrected JSON in the same format."));
+        return List.copyOf(messages);
+    }
+
+    /**
+     * v0는 DDL이 파일에 고정돼 있어 채울 값이 없다. v1은 전체 스키마와 전체 지표 사전을 넣고,
+     * v2는 질문에 필요한 테이블과 지표만 넣는다.
+     */
     private Map<String, String> valuesFor(PromptVersion version, String question) {
         MetricsDictionary dictionary = metricsDictionary();
         Map<String, String> values = new LinkedHashMap<>();
         values.put("AS_OF_DATE", asOfDate.toString());
-        values.put("SCHEMA", SchemaCatalog.allDdl());
+        boolean pruned = version == PromptVersion.V2;
+        values.put("SCHEMA", pruned ? SchemaCatalog.ddlOf(tablesFor(question)) : SchemaCatalog.allDdl());
         values.put("DATE_RULES", dictionary.dateRules());
-        values.put("METRICS", dictionary.select(question, false));
+        values.put("METRICS", dictionary.select(question, pruned));
         values.put("FEWSHOT", fewShotLoader().render());
         return values;
+    }
+
+    /** 키워드 규칙이 고른 테이블에, 질문이 언급한 지표가 쓰는 테이블을 더한다. */
+    Set<String> tablesFor(String question) {
+        Set<String> tables = new LinkedHashSet<>(schemaSelector().select(question));
+        tables.addAll(metricsDictionary().tablesFor(question));
+        if (tables.stream().anyMatch(SchemaCatalog::isFactTable)) {
+            tables.add("product");
+            tables.add("location");
+        }
+        return tables;
     }
 
     private static String render(String template, Map<String, String> values) {
@@ -88,6 +103,13 @@ public class PromptBuilder {
             metricsDictionary = loaded;
         }
         return metricsDictionary;
+    }
+
+    private synchronized SchemaSelector schemaSelector() {
+        if (schemaSelector == null) {
+            schemaSelector = new SchemaSelector(promptsDir.resolve("schema_rules.yml"));
+        }
+        return schemaSelector;
     }
 
     private synchronized FewShotLoader fewShotLoader() {

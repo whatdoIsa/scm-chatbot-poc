@@ -43,6 +43,10 @@ tasks.register('integrationTest', Test) {
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform {
         includeTags 'integration'
+        // CI처럼 Ollama가 없는 환경에서는 -PexcludeOllama로 모델 호출 테스트를 뺀다.
+        if (project.hasProperty('excludeOllama')) {
+            excludeTags 'ollama'
+        }
     }
     shouldRunAfter tasks.named('test')
 }

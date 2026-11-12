@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 /** 실제 Ollama를 호출해 v0 프롬프트의 응답이 파싱되고 토큰 수가 들어오는지 확인한다. */
 @Tag("integration")
+@Tag("ollama")
 @SpringBootTest(properties = "chat.llm.provider=ollama")
 class OllamaLlmClientIT {
 

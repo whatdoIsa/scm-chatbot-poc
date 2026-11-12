@@ -1,0 +1,12 @@
+package com.scmchat.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
+public record ChatRequest(
+        @NotBlank(message = ChatRequest.QUESTION_RULE)
+        @Size(max = 500, message = ChatRequest.QUESTION_RULE)
+        String question) {
+
+    static final String QUESTION_RULE = "question must be 1..500 characters";
+}

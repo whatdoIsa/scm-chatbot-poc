@@ -32,7 +32,7 @@ public class ChatController {
 
     @PostMapping("/chat")
     public ResponseEntity<ChatResponse> chat(@Valid @RequestBody ChatRequest request) {
-        ChatResult result = chatService.answer(request.question().strip(), promptVersion);
+        ChatResult result = chatService.answer(request.question(), promptVersion);
         return ResponseEntity.status(httpStatusOf(result.status())).body(ChatResponse.from(result, asOfDate));
     }
 

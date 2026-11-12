@@ -148,6 +148,28 @@ class ChatControllerTest {
     }
 
     @Test
+    void measuresLengthWithoutSurroundingWhitespace() throws Exception {
+        when(chatService.answer(any(), any())).thenReturn(new ChatResult(
+                Action.REFUSE, ChatStatus.OK, "거부", null, null, PromptVersion.V1, "m", 1, 0, 0, 1, 1L));
+
+        postQuestion("  " + "가".repeat(500) + " \n").andExpect(status().isOk());
+
+        verify(chatService).answer("가".repeat(500), PromptVersion.V1);
+    }
+
+    @Test
+    void answersNotImplementedForUnsupportedPromptVersion() throws Exception {
+        when(chatService.answer(any(), any()))
+                .thenThrow(new UnsupportedOperationException("prompt version v1 is not implemented yet"));
+
+        postQuestion("질문")
+                .andExpect(status().isNotImplemented())
+                .andExpect(content().json(
+                        "{\"code\":\"NOT_IMPLEMENTED\",\"message\":\"prompt version v1 is not implemented yet\"}",
+                        JsonCompareMode.STRICT));
+    }
+
+    @Test
     void rejectsMalformedJson() throws Exception {
         mockMvc.perform(post("/api/chat").contentType(MediaType.APPLICATION_JSON).content("{question:"))
                 .andExpect(status().isBadRequest())

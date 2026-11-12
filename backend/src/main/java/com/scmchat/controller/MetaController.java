@@ -2,6 +2,7 @@ package com.scmchat.controller;
 
 import com.scmchat.config.ChatProperties;
 import com.scmchat.dto.MetaResponse;
+import com.scmchat.llm.LlmClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -11,9 +12,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class MetaController {
 
     private final ChatProperties chatProperties;
+    private final LlmClient llmClient;
 
-    public MetaController(ChatProperties chatProperties) {
+    public MetaController(ChatProperties chatProperties, LlmClient llmClient) {
         this.chatProperties = chatProperties;
+        this.llmClient = llmClient;
     }
 
     @GetMapping("/meta")
@@ -21,7 +24,7 @@ public class MetaController {
         return new MetaResponse(
                 chatProperties.asOfDate(),
                 chatProperties.promptVersion(),
-                chatProperties.llm().model(),
+                llmClient.modelName(),
                 chatProperties.llm().provider());
     }
 }

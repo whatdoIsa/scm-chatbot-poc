@@ -78,14 +78,12 @@ public class ResultComparator {
 
     private static boolean columnMatches(List<List<Object>> expectedRows, int expectedColumn,
             List<List<Object>> actualRows, int actualColumn, boolean orderSensitive) {
-        List<Object> expectedValues = column(expectedRows, expectedColumn);
-        List<Object> actualValues = column(actualRows, actualColumn);
         if (!orderSensitive) {
-            expectedValues.sort(CELL_ORDER);
-            actualValues.sort(CELL_ORDER);
+            return sameRowsIgnoringOrder(
+                    project(expectedRows, new int[] {expectedColumn}), project(actualRows, new int[] {actualColumn}));
         }
-        for (int row = 0; row < expectedValues.size(); row++) {
-            if (!sameValue(expectedValues.get(row), actualValues.get(row))) {
+        for (int row = 0; row < expectedRows.size(); row++) {
+            if (!sameValue(expectedRows.get(row).get(expectedColumn), actualRows.get(row).get(actualColumn))) {
                 return false;
             }
         }
@@ -93,17 +91,38 @@ public class ResultComparator {
     }
 
     private static boolean sameRowsIgnoringOrder(List<List<Object>> expectedRows, List<List<Object>> actualRows) {
+        // 정렬한 뒤 가까운 자리부터 짝을 찾는다. 허용 오차 때문에 정렬 순서가 어긋나도 이웃한 행과 짝지을 수 있다.
         List<List<Object>> expectedSorted = new ArrayList<>(expectedRows);
         List<List<Object>> actualSorted = new ArrayList<>(actualRows);
         expectedSorted.sort(ROW_ORDER);
         actualSorted.sort(ROW_ORDER);
+        boolean[] used = new boolean[actualSorted.size()];
         for (int row = 0; row < expectedSorted.size(); row++) {
-            List<Object> expectedRow = expectedSorted.get(row);
-            List<Object> actualRow = actualSorted.get(row);
-            for (int column = 0; column < expectedRow.size(); column++) {
-                if (!sameValue(expectedRow.get(column), actualRow.get(column))) {
-                    return false;
+            int match = findMatch(expectedSorted.get(row), actualSorted, used, row);
+            if (match < 0) {
+                return false;
+            }
+            used[match] = true;
+        }
+        return true;
+    }
+
+    private static int findMatch(List<Object> expectedRow, List<List<Object>> actualRows, boolean[] used, int start) {
+        for (int distance = 0; distance < actualRows.size(); distance++) {
+            for (int candidate : new int[] {start - distance, start + distance}) {
+                if (candidate >= 0 && candidate < actualRows.size() && !used[candidate]
+                        && sameRow(expectedRow, actualRows.get(candidate))) {
+                    return candidate;
                 }
+            }
+        }
+        return -1;
+    }
+
+    private static boolean sameRow(List<Object> expectedRow, List<Object> actualRow) {
+        for (int column = 0; column < expectedRow.size(); column++) {
+            if (!sameValue(expectedRow.get(column), actualRow.get(column))) {
+                return false;
             }
         }
         return true;
@@ -119,14 +138,6 @@ public class ResultComparator {
             projected.add(cells);
         }
         return projected;
-    }
-
-    private static List<Object> column(List<List<Object>> rows, int column) {
-        List<Object> values = new ArrayList<>(rows.size());
-        for (List<Object> row : rows) {
-            values.add(row.get(column));
-        }
-        return values;
     }
 
     /** 숫자는 상대 오차 0.1% 이내(정답이 0이면 절대 오차 1e-9 이내)를 같은 값으로 본다. */

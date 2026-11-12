@@ -139,6 +139,16 @@ class ResultComparatorTest {
     }
 
     @Test
+    void pairsNearlyEqualRowsEvenWhenTheirSortOrderDiffers() {
+        QueryResult expected = result(cols("v", "sku"),
+                row(new BigDecimal("100.00"), "A"), row(new BigDecimal("100.05"), "B"));
+        QueryResult actual = result(cols("v", "sku"),
+                row(new BigDecimal("100.06"), "A"), row(new BigDecimal("100.04"), "B"));
+
+        assertMatch(expected, actual, false);
+    }
+
+    @Test
     void handlesDuplicateRows() {
         QueryResult expected = result(cols("v"), row(1), row(1), row(2));
 

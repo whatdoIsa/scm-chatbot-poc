@@ -164,7 +164,7 @@ set -a; . ./.env; set +a
 bash scripts/db_reset.sh
 cd backend && ./gradlew clean test integrationTest
 ./gradlew bootRun > /tmp/boot.log 2>&1 &
-sleep 20; curl -s localhost:8080/api/meta; kill %1
+sleep 20; curl -s localhost:8080/api/meta; kill %1; lsof -ti tcp:8080 | xargs kill
 ```
 완료: 테스트 전부 통과, 앱이 `validate`로 기동, `/api/meta`가 API_SPEC 2.2 형식(`llmProvider":"fake"`).
 
@@ -206,7 +206,7 @@ for q in 'SKU-007의 현재 재고는?' '재고 어때?' 'SKU-007 재고를 0으
   curl -s -X POST localhost:8080/api/chat -H 'Content-Type: application/json' -d "{\"question\":\"$q\"}"; echo
 done
 docker compose exec -T db psql -U scm_app -d scm -Atc "select count(*) from app.chat_log"
-kill %1
+kill %1; lsof -ti tcp:8080 | xargs kill
 ```
 완료: 테스트 통과, 3개 curl 모두 API_SPEC 형식의 JSON, `chat_log` 3행. (모델 응답의 정확성은 T8에서 평가하므로 action이 기대와 달라도 통과)
 
@@ -279,7 +279,7 @@ set -a; . ./.env; set +a
 cd backend && ./gradlew test integrationTest --tests '*GoldenSetIT'
 ./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v1 --eval.repeat=1'
 ./gradlew bootRun > /tmp/boot.log 2>&1 &
-sleep 20; curl -s localhost:8080/api/eval/summary; kill %1
+sleep 20; curl -s localhost:8080/api/eval/summary; kill %1; lsof -ti tcp:8080 | xargs kill
 ```
 완료: v0과 v1 `eval_run`의 model·temperature·seed·golden_sha256이 동일, 요약 API에서 두 버전의 유형별 정확도와 오답 원인별 건수 확인. 점수 차이가 작으면 개선이라 단정하지 않는다. 이 시점이 필수 완료 기준이다.
 
@@ -298,7 +298,7 @@ set -a; . ./.env; set +a
 cd backend && ./gradlew test integrationTest
 ./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v2 --eval.repeat=1'
 ./gradlew bootRun > /tmp/boot.log 2>&1 &
-sleep 20; curl -s localhost:8080/api/eval/summary; kill %1
+sleep 20; curl -s localhost:8080/api/eval/summary; kill %1; lsof -ti tcp:8080 | xargs kill
 ```
 완료: 테스트 통과, 세 버전의 설정(model, temperature, seed, golden_sha256)이 동일, 요약 API에 v0·v1·v2가 모두 나옴.
 

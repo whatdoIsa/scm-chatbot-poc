@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: scm-chatbot
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: app
+
+chat:
+  prompt-version: v1
+  as-of-date: 2026-11-08
+  max-rows: 1000
+  validator-limit: 200
+  prompts-dir: ../prompts
+  llm:
+    provider: fake
+    base-url: http://localhost:11434
+    model: qwen2.5-coder:7b
+    temperature: 0
+    seed: 42
+    num-ctx: 8192
+    timeout-seconds: 120
+
+eval:
+  golden-path: ../eval/golden_set.json
+  golden-hash-path: ../eval/golden_set.sha256
+  report-dir: ../eval/reports
+  versions: v0
+  repeat: 1
+
+app:
+  datasource:
+    url: ${APP_DB_URL}
+    username: ${APP_DB_USER}
+    password: ${APP_DB_PASSWORD}
+
+scm-ro:
+  datasource:
+    url: ${SCM_RO_DB_URL}
+    username: ${SCM_RO_DB_USER}
+    password: ${SCM_RO_DB_PASSWORD}

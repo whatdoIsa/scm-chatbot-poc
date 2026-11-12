@@ -233,10 +233,10 @@ cd .. && sha256sum -c eval/golden_set.sha256
 참조: PRD 5.4, API_SPEC 2.3, 6장
 
 작업
-- `ResultComparator`(값 기준, 컬럼명 무시, 0.1% 허용, 정렬 옵션, 숫자·날짜 정규화), `Grader`(오류 자동 분류), `OracleLlmClient`
+- `ResultComparator`(값 기준, 컬럼명 무시, 추가 컬럼 허용(PRD 5.4), 0.1% 허용, 정렬 옵션, 숫자·날짜 정규화), `Grader`(오류 자동 분류), `OracleLlmClient`
 - `EvalRunner`(`ApplicationRunner`, `eval` 프로파일): 골든셋 해시 검증 → 버전·반복별 `eval_run` 생성 → 문항별 `ChatService.answer` 호출, 정답 SQL 실행, 채점, `eval_result` 저장 → `eval_run` 요약 갱신 → `EvalReportWriter`가 콘솔과 `eval/reports/run-{id}-{version}.md` 출력(오답 표에 질문, 생성 SQL, 미분류 error_type)
 - `EvalSummaryMapper`(MyBatis XML), `EvalController`(`GET /api/eval/summary`)
-- 단위 테스트: ResultComparator 12개 이상(컬럼명 무시, 순서 무시·민감, 0.1% 경계, BigDecimal·Double, null, 행 수 불일치, 날짜), Grader(clarify·refuse·실행 오류·action 불일치)
+- 단위 테스트: ResultComparator 12개 이상(컬럼명 무시, 추가 컬럼 허용·컬럼 순서 무관, 순서 무시·민감, 0.1% 경계, BigDecimal·Double, null, 행 수 불일치, 날짜), Grader(clarify·refuse·실행 오류·action 불일치)
 
 검증
 ```bash

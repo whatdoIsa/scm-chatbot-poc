@@ -1,0 +1,4 @@
+# 평가 실행 전용. 웹 서버를 띄우지 않고 EvalRunner가 끝나면 종료한다.
+spring:
+  main:
+    web-application-type: none

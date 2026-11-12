@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.scmchat.mapper.EvalSummaryMapper">
+
+  <resultMap id="runSummary" type="com.scmchat.mapper.RunSummaryRow">
+    <constructor>
+      <arg column="run_id" javaType="_long"/>
+      <arg column="prompt_version" javaType="String"/>
+      <arg column="model" javaType="String"/>
+      <arg column="temperature" javaType="java.math.BigDecimal"/>
+      <arg column="seed" javaType="_int"/>
+      <arg column="repeat_no" javaType="_int"/>
+      <arg column="total" javaType="_int"/>
+      <arg column="correct" javaType="_int"/>
+      <arg column="accuracy" javaType="java.math.BigDecimal"/>
+      <arg column="sql_exec_success_rate" javaType="java.math.BigDecimal"/>
+      <arg column="format_ok_rate" javaType="java.math.BigDecimal"/>
+      <arg column="avg_elapsed_ms" javaType="_int"/>
+    </constructor>
+  </resultMap>
+
+  <resultMap id="typeSummary" type="com.scmchat.mapper.TypeSummaryRow">
+    <constructor>
+      <arg column="qtype" javaType="String"/>
+      <arg column="total" javaType="_int"/>
+      <arg column="correct" javaType="_int"/>
+      <arg column="accuracy" javaType="java.math.BigDecimal"/>
+    </constructor>
+  </resultMap>
+
+  <resultMap id="errorTypeCount" type="com.scmchat.mapper.ErrorTypeCountRow">
+    <constructor>
+      <arg column="error_type" javaType="String"/>
+      <arg column="cnt" javaType="_int"/>
+    </constructor>
+  </resultMap>
+
+  <select id="runSummaries" resultMap="runSummary">
+    SELECT id AS run_id, prompt_version, model, temperature, seed, repeat_no,
+           total, correct, accuracy, sql_exec_success_rate, format_ok_rate, avg_elapsed_ms
+    FROM app.eval_run
+    WHERE finished_at IS NOT NULL
+    <if test="model != null">
+      AND model = #{model}
+    </if>
+    ORDER BY id DESC
+  </select>
+
+  <select id="typeSummaries" resultMap="typeSummary">
+    SELECT qtype,
+           count(*) AS total,
+           count(*) FILTER (WHERE correct) AS correct,
+           round(count(*) FILTER (WHERE correct)::numeric / count(*), 4) AS accuracy
+    FROM app.eval_result
+    WHERE run_id = #{runId}
+    GROUP BY qtype
+    ORDER BY min(question_id)
+  </select>
+
+  <select id="errorTypeCounts" resultMap="errorTypeCount">
+    SELECT coalesce(error_type, 'UNCLASSIFIED') AS error_type, count(*) AS cnt
+    FROM app.eval_result
+    WHERE run_id = #{runId} AND NOT correct
+    GROUP BY coalesce(error_type, 'UNCLASSIFIED')
+    ORDER BY cnt DESC, error_type
+  </select>
+</mapper>

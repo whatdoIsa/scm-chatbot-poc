@@ -145,6 +145,12 @@ public class EvalReportWriter {
         long none = results.stream().filter(result -> result.getAnswerStatus() == null).count();
         out.append("| 조회 결과 없음 | ").append(none).append(" |\n");
 
+        // 후검증은 숫자의 출처만 본다. 조회 자체가 틀렸으면 검증을 통과한 문장도 틀린 내용을 말한다.
+        long verifiedButWrong = results.stream()
+                .filter(result -> "VERIFIED".equals(result.getAnswerStatus()) && !result.isCorrect())
+                .count();
+        out.append("\nVERIFIED 문장 가운데 조회 결과가 오답인 것: ").append(verifiedButWrong).append("건\n");
+
         List<EvalResult> rejected =
                 results.stream().filter(result -> "REJECTED".equals(result.getAnswerStatus())).toList();
         out.append("\n### 거부된 문장\n\n");

@@ -689,7 +689,9 @@ chat:
 }
 ```
 
-`routes`의 route는 `eval_result.route` 값이고, NULL(라우터 실패)은 `none`으로 묶는다.
+`routes`의 route는 `eval_result.route` 값이고, NULL(라우터 실패)은 `none`으로 묶는다. 경로가 하나도 기록되지 않은 실행은 빈 배열이다.
+
+리포트(`eval/reports/run-{id}-v3.md`)에는 경로별 정확도, 답변 문장 후검증 건수, 거부된 문장 목록, 그리고 `VERIFIED` 문장 가운데 조회 결과가 오답인 건수가 더해진다. 후검증은 숫자의 출처만 보므로 통과율만으로는 문장이 맞는지 알 수 없다.
 
 ### 8.9 `eval/golden_set_v3.json`
 

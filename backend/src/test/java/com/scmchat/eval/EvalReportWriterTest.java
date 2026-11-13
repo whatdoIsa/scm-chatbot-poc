@@ -35,6 +35,10 @@ class EvalReportWriterTest {
         EvalResult routerFailed = result(run, "Q25", "AMBIGUOUS", "clarify", null, null, false, "FORMAT_ERROR", 1);
 
         String report = writer.render(run, List.of(toolCorrect, toolWrong, routerFailed), ITEMS);
+        toolWrong.recordAnswer("일평균 판매량은 40개입니다.", "VERIFIED");
+        String reportWithWrongButVerified = writer.render(run, List.of(toolCorrect, toolWrong, routerFailed), ITEMS);
+
+        assertThat(reportWithWrongButVerified).contains("VERIFIED 문장 가운데 조회 결과가 오답인 것: 1건");
 
         assertThat(report).contains("| 평균 LLM 호출 수 | 1.6667 |", "| 숫자 검증 통과율 | 0.5000 |");
         assertThat(report).contains("## 경로별 정확도", "| tool | 2 | 1 | 0.5000 |", "| none | 1 | 0 | 0.0000 |");
@@ -42,6 +46,7 @@ class EvalReportWriterTest {
         assertThat(report).contains("## 답변 문장 후검증", "| VERIFIED | 1 |", "| REJECTED | 1 |", "| SKIPPED | 0 |",
                 "| 조회 결과 없음 | 1 |");
         assertThat(report).contains("| Q20 | 최근 28일 SKU-029의 일평균 판매량은? | 일평균 판매량은 약 40개로 \\| 2주치입니다. | 오답 |");
+        assertThat(report).contains("VERIFIED 문장 가운데 조회 결과가 오답인 것: 0건");
         assertThat(report).contains("tool: avg_daily_sales {\"sku\":\"SKU-029\",\"days\":7,\"output\":\"value\"}");
     }
 

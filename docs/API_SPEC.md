@@ -600,8 +600,9 @@ tools:
 - value와 count는 항상 1행이다. 분모가 0이면 지표 값은 NULL이다.
 - ranking은 지표 값이 NULL인 품목을 빼고 `order` 방향으로 정렬하며 동점은 sku 오름차순이다.
 - list는 sku, location_name 오름차순이고 `chat.validator-limit`(200)에서 자른다. 상한을 채우면 `truncated=true`.
-- 쿼리는 `mapper/MetricToolMapper.xml`에 고정돼 있고, 인자는 `#{}` 바인딩으로만 들어간다. 정렬 방향처럼 바인딩할 수 없는 부분은 검증된 enum 값으로 XML의 `<choose>`가 고른다(`${}` 치환을 쓰지 않는다).
+- 쿼리는 `mapper/scmro/MetricToolMapper.xml`에 고정돼 있고, 인자는 `#{}` 바인딩으로만 들어간다. 정렬 방향처럼 바인딩할 수 없는 부분은 검증된 enum 값으로 XML의 `<choose>`가 고른다(`${}` 치환을 쓰지 않는다).
 - 실행은 scm_ro DataSource로 만든 별도 `SqlSessionFactory`가 맡는다. 문장 타임아웃 5초.
+- 날짜 범위(최근 N일, 28일, 전체 기간)와 list의 상한은 `ToolExecutor`가 설정값으로 계산한다. 모델이 정하는 것은 `ToolCall`의 값뿐이다.
 
 ### 8.5 DB 추가 컬럼 (`db/02_schema.sql`, 모두 NULL 허용)
 
@@ -636,10 +637,13 @@ answer_verified_rate numeric(5,4)
 | tool | `RawToolArgs` (record) | `String sku, String location, int days, String startDate, String endDate, String output, int topN, String order` |
 | tool | `ToolCall` (record) | `ToolName tool, ToolOutput output, String sku, String location, Integer days, LocalDate startDate, LocalDate endDate, Integer topN, Boolean ascending` |
 | tool | `ToolArgsValidator` | `ToolValidation validate(String toolName, RawToolArgs raw)` → `ToolValidation(boolean ok, ToolCall call, String reason)` |
-| tool | `ToolExecutor` | `QueryResult execute(ToolCall call)` |
+| tool | `Dimensions`, `MapperDimensions` | `boolean skuExists(String sku)`, `List<String> locationNames()`. 검증기가 품목·거점 존재를 확인하는 창구이고 구현은 `MetricToolMapper`를 부른다 |
+| tool | `ToolExecutor` | `QueryResult execute(ToolCall call)`. DB 오류는 `SqlExecutionException` |
 | tool | `ToolCatalog` | `tools.yml`을 읽어 `String render()` |
-| mapper | `MetricToolMapper` (MyBatis, scm_ro) | 도구·출력 방식별 조회 메서드, `List<String> locationNames()`, `boolean skuExists(String sku)` |
-| config | `ScmRoMyBatisConfig` | scm_ro용 `SqlSessionFactory`. 기존 `EvalSummaryMapper`는 app DataSource를 그대로 쓴다 |
+| mapper | `MetricToolMapper` (MyBatis, scm_ro) | 도구·출력 방식별 조회 메서드 12개(`ToolQuery`를 받아 `List<Map<String, Object>>` 반환), `List<String> locationNames()`, `boolean skuExists(String sku)` |
+| mapper | `ToolQuery` (record) | `String sku, String location, LocalDate asOfDate, LocalDate fromDate, LocalDate toDate, Integer days, Integer limit, boolean ascending` |
+| mapper | `ScmRoMapper` (annotation) | scm_ro `SqlSessionFactory`에 붙일 매퍼 표시. `@Mapper`가 붙은 매퍼는 app DataSource |
+| config | `MyBatisConfig` | `sqlSessionFactory`(app, `@Primary`, `classpath:mapper/*.xml`)와 `scmRoSqlSessionFactory`(scm_ro, `classpath:mapper/scmro/*.xml`). `SqlSessionFactory` 빈을 직접 등록하면 자동 구성이 물러나므로 둘 다 여기서 만든다. 기존 `EvalSummaryMapper`는 app DataSource를 그대로 쓴다 |
 | answer | `NumberVerifier` | `Verification verify(String answer, VerificationContext context)` → `Verification(boolean ok, List<String> unverified)` |
 | answer | `VerificationContext` (record) | `String question, QueryResult result, ToolCall toolCall, LocalDate asOfDate` |
 | answer | `AnswerStatus` (enum) | `VERIFIED`, `REJECTED`, `SKIPPED` |
@@ -662,6 +666,8 @@ chat:
   data-start-date: 2026-08-10
   answer-max-rows: 20
 ```
+
+`mybatis.mapper-locations`는 없앤다(매퍼 XML 위치는 `MyBatisConfig`가 정한다).
 
 `chat.prompt-version`과 `eval.versions`가 `v3`을 받는다. 기본 `chat.prompt-version`은 v1 그대로다.
 

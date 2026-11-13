@@ -354,10 +354,10 @@ cd backend && ./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm
 
 작업
 - `prompts/tools.yml`, `ToolCatalog`, `ToolName`, `ToolOutput`, `RawToolArgs`, `ToolCall`, `ToolArgsValidator`, `ToolExecutor`
-- `ScmRoMyBatisConfig`(scm_ro용 `SqlSessionFactory`, 문장 타임아웃 5초), `MetricToolMapper`와 XML. 기존 `EvalSummaryMapper`는 app DataSource에 그대로 둔다
+- `MyBatisConfig`(app과 scm_ro의 `SqlSessionFactory` 두 개, scm_ro는 문장 타임아웃 5초), `ScmRoMapper`, `ToolQuery`, `MetricToolMapper`와 `mapper/scmro/` XML, `Dimensions`. 기존 `EvalSummaryMapper`는 app DataSource에 그대로 둔다
 - 설정 키 `chat.data-start-date`
 - 단위 테스트 `ToolArgsValidatorTest`: 통과 6개 이상(도구별 1개), 거부 10개 이상(모르는 도구, 잘못된 SKU 형식, 없는 SKU, 없는 거점, 도구가 허용하지 않는 output, ranking에 top_n 0, top_n 51, order 없음, ranking에 sku 지정, days 0, days 92, 날짜 한쪽만, 시작 > 끝, 범위 밖 날짜), SKU 정규화(`SKU-7` → `SKU-007`)
-- 통합 테스트 `MetricToolIT`: 도구 6개의 출력 방식 12가지가 테스트에 따로 쓴 참조 SQL의 결과와 일치, 분모 0 품목의 ranking 제외, 도구 쿼리가 scm_ro로 실행됨(`current_user`)
+- 통합 테스트 `MetricToolIT`: 도구 6개의 출력 방식 12가지가 테스트에 따로 쓴 참조 SQL의 결과와 일치, 0행 목록도 컬럼 유지, 도구 쿼리가 scm_ro로 실행됨(`current_user`). 시드 데이터에 최근 28일 판매가 0인 SKU-거점이 없어 "분모 0 품목의 ranking 제외"는 테스트하지 못한다
 
 검증
 ```bash

@@ -173,7 +173,7 @@ class PromptBuilderTest {
     void rejectsUnknownConfiguredVersionAtStartup() {
         ChatProperties.Llm llm = new ChatProperties.Llm(
                 "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
-        ChatProperties properties = new ChatProperties("v9", LocalDate.of(2026, 11, 8), 1000, 200, "../prompts", llm);
+        ChatProperties properties = new ChatProperties("v9", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, "../prompts", llm);
 
         assertThatThrownBy(() -> new PromptBuilder(properties)).isInstanceOf(IllegalArgumentException.class);
     }
@@ -189,6 +189,6 @@ class PromptBuilderTest {
         ChatProperties.Llm llm = new ChatProperties.Llm(
                 "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
         return new PromptBuilder(new ChatProperties(
-                "v0", LocalDate.of(2026, 11, 8), 1000, 200, promptsDir.toString(), llm));
+                "v0", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, promptsDir.toString(), llm));
     }
 }

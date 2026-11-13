@@ -335,7 +335,7 @@ class ChatServiceTest {
         ChatProperties.Llm llm = new ChatProperties.Llm(
                 "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
         // Gradle은 backend/를 작업 디렉터리로 테스트를 실행한다.
-        ChatProperties properties = new ChatProperties("v0", LocalDate.of(2026, 11, 8), 1000, 200, "../prompts", llm);
+        ChatProperties properties = new ChatProperties("v0", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, "../prompts", llm);
         return new ChatService(new PromptBuilder(properties), llmClient, new LlmOutputParser(),
                 new SqlValidator(properties), executor, chatLogRepository, properties);
     }

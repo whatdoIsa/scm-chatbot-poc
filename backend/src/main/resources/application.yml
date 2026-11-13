@@ -9,12 +9,10 @@ spring:
       hibernate:
         default_schema: app
 
-mybatis:
-  mapper-locations: classpath:mapper/*.xml
-
 chat:
   prompt-version: v1
   as-of-date: 2026-11-08
+  data-start-date: 2026-08-10
   max-rows: 1000
   validator-limit: 200
   prompts-dir: ../prompts

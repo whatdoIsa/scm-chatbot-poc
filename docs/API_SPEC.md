@@ -450,7 +450,7 @@ v0~v2의 요청·응답·LLM 호출 본문은 바뀌지 않는다. 아래는 `pr
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | route | string/null | 라우터가 고른 경로 `tool`, `sql`, `clarify`, `refuse`. 라우터 호출 실패·형식 오류면 null |
-| tool | object/null | 도구 경로일 때 `{"name": "days_of_supply", "args": {...}}`. args는 검증·정규화를 거친 값이고, 검증에 실패했으면 모델이 낸 원래 값 |
+| tool | object/null | route가 `tool`일 때 `{"name": "days_of_supply", "args": {...}}`. args는 검증·정규화를 거친 값이고, 검증에 실패했으면 모델이 낸 원래 값(빈 문자열과 0은 뺀다). 검증에 실패한 호출의 name은 모델이 낸 이름을 32자까지 남긴다 |
 | answer | string/null | 숫자 후검증을 통과한 답변 문장. 통과하지 못했거나 만들지 않았으면 null |
 | answerStatus | string/null | `VERIFIED`, `REJECTED`, `SKIPPED` |
 
@@ -459,7 +459,7 @@ v0~v2의 요청·응답·LLM 호출 본문은 바뀌지 않는다. 아래는 `pr
 | 필드 | v3 |
 | --- | --- |
 | action | `tool`이 더해진다. 도구로 조회했으면 `tool`, SQL로 조회했으면 `sql` |
-| status | `TOOL_REJECTED`(HTTP 422)가 더해진다. 도구 인자 검증 실패이며 message에 사유 |
+| status | `TOOL_REJECTED`(HTTP 422)가 더해진다. 도구 인자 검증 실패이며 message에 사유. 품목·거점을 확인하는 조회나 도구 쿼리가 DB 오류로 실패하면 `SQL_EXECUTION_ERROR` |
 | sql | 도구 경로에서는 null |
 | attempts | LLM 호출 횟수 1~4 (라우터 1, SQL 생성 1, 재시도 1, 답변 문장 1) |
 | promptVersion | `v3` |
@@ -477,7 +477,7 @@ v0~v2의 요청·응답·LLM 호출 본문은 바뀌지 않는다. 아래는 `pr
 ```json
 {
   "action": "tool", "status": "OK", "message": null, "sql": null,
-  "columns": ["on_hand", "avg_daily_qty", "days_of_supply"], "rows": [[120, 9.6071, 12.4907]],
+  "columns": ["days_of_supply"], "rows": [[12.4907]],
   "rowCount": 1, "truncated": false,
   "route": "tool",
   "tool": {"name": "days_of_supply", "args": {"sku": "SKU-026", "location": "서울센터", "output": "value"}},
@@ -586,7 +586,7 @@ tools:
 | --- | --- | --- |
 | avg_daily_sales | value | `avg_daily_qty` |
 | avg_daily_sales | ranking | `sku`, `avg_daily_qty` |
-| days_of_supply | value | `on_hand`, `avg_daily_qty`, `days_of_supply` |
+| days_of_supply | value | `days_of_supply` |
 | days_of_supply | ranking | `sku`, `days_of_supply` |
 | stockout_rate | value | `stockout_rate` |
 | stockout_rate | ranking | `sku`, `stockout_rate` |
@@ -597,7 +597,8 @@ tools:
 | reorder_needed | list | `sku`, `location_name`, `on_hand`, `in_transit`, `reorder_point` |
 | reorder_needed | count | `cnt` |
 
-- value와 count는 항상 1행이다. 분모가 0이면 지표 값은 NULL이다.
+- value와 count는 항상 1행이다. 분모가 0이면 지표 값은 NULL이다(MyBatis가 NULL뿐인 행을 버리지 않도록 `returnInstanceForEmptyRow`와 `callSettersOnNulls`를 켠다).
+- 도구는 자기 지표 값(과 순위·목록의 라벨)만 돌려준다. 재고나 일평균 같은 구성 요소를 함께 내면, 도구를 잘못 골라도 추가 컬럼 허용 규칙(PRD 5.4) 때문에 정답으로 채점될 수 있다.
 - ranking은 지표 값이 NULL인 품목을 빼고 `order` 방향으로 정렬하며 동점은 sku 오름차순이다.
 - list는 sku, location_name 오름차순이고 `chat.validator-limit`(200)에서 자른다. 상한을 채우면 `truncated=true`.
 - 쿼리는 `mapper/scmro/MetricToolMapper.xml`에 고정돼 있고, 인자는 `#{}` 바인딩으로만 들어간다. 정렬 방향처럼 바인딩할 수 없는 부분은 검증된 enum 값으로 XML의 `<choose>`가 고른다(`${}` 치환을 쓰지 않는다).
@@ -638,7 +639,7 @@ answer_verified_rate numeric(5,4)
 | tool | `ToolCall` (record) | `ToolName tool, ToolOutput output, String sku, String location, Integer days, LocalDate startDate, LocalDate endDate, Integer topN, Boolean ascending` |
 | tool | `ToolArgsValidator` | `ToolValidation validate(String toolName, RawToolArgs raw)` → `ToolValidation(boolean ok, ToolCall call, String reason)` |
 | tool | `Dimensions`, `MapperDimensions` | `boolean skuExists(String sku)`, `List<String> locationNames()`. 검증기가 품목·거점 존재를 확인하는 창구이고 구현은 `MetricToolMapper`를 부른다 |
-| tool | `ToolExecutor` | `QueryResult execute(ToolCall call)`. DB 오류는 `SqlExecutionException` |
+| tool | `ToolExecutor` | `QueryResult execute(ToolCall call)`. DB 오류는 `SqlExecutionException`(`SqlExecutionException.from(DataAccessException)`). `MapperDimensions`도 같은 예외로 바꾼다 |
 | tool | `ToolCatalog` | `tools.yml`을 읽어 `String render()` |
 | mapper | `MetricToolMapper` (MyBatis, scm_ro) | 도구·출력 방식별 조회 메서드 12개(`ToolQuery`를 받아 `List<Map<String, Object>>` 반환), `List<String> locationNames()`, `boolean skuExists(String sku)` |
 | mapper | `ToolQuery` (record) | `String sku, String location, LocalDate asOfDate, LocalDate fromDate, LocalDate toDate, Integer days, Integer limit, boolean ascending` |
@@ -656,7 +657,7 @@ answer_verified_rate numeric(5,4)
 | entity | `ChatLog`, `EvalResult` | `recordRoute(String route, String toolName, String toolArgs)`와 getter. 생성자는 그대로 둔다 |
 | prompt | `FewShotLoader` | `static FewShotLoader forRouter(Path file)` 추가. 예시의 output을 `parseRoute`로 검사한다 |
 | eval | `ErrorType` | `TOOL_SELECTION`, `TOOL_ARGUMENT` 추가 |
-| eval | `Grader` | 정답이 sql인 문항은 action이 `sql`·`tool` 모두 결과 비교로 채점. `TOOL_REJECTED`는 `TOOL_ARGUMENT` |
+| eval | `Grader` | 정답이 sql인 문항은 action이 `sql`·`tool` 모두 결과 비교로 채점하고 `TOOL_REJECTED`는 `TOOL_ARGUMENT`. 정답이 clarify·refuse인 문항에 도구로 답했으면 status와 무관하게 `ACTION_MISMATCH` |
 | mapper | `EvalSummaryMapper` | `List<RouteSummaryRow> routeSummaries(long runId)` 추가 |
 
 - `OllamaLlmClient`는 `format.schema()`를 요청의 `format`에 넣는다. `ACTION`의 요청 본문은 v0~v2 측정 때와 바이트 단위로 같아야 하며 테스트로 고정한다.

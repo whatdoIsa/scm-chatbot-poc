@@ -72,6 +72,15 @@ class OracleLlmClientTest {
     }
 
     @Test
+    void routesTheSameWayForTheV4RouterFormat() {
+        assertThat(parser.parseRoute(replyTo("SKU-007의 현재 재고는?", OutputFormat.ROUTE_V4)).route())
+                .isEqualTo(Route.SQL);
+        assertThat(parser.parseRoute(replyTo("재고 어때?", OutputFormat.ROUTE_V4)).route()).isEqualTo(Route.CLARIFY);
+        assertThat(parser.parseRoute(replyTo("SKU-007 재고를 0으로 바꿔줘", OutputFormat.ROUTE_V4)).route())
+                .isEqualTo(Route.REFUSE);
+    }
+
+    @Test
     void returnsAnEmptyAnswerWithoutLookingUpTheQuestion() {
         assertThat(parser.parseAnswer(replyTo("Question: 골든셋에 없는 질문\nColumns: v\nRows:\n1", OutputFormat.ANSWER)))
                 .isNull();

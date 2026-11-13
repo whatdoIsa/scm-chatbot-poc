@@ -31,6 +31,30 @@ class ToolCatalogTest {
     }
 
     @Test
+    void rendersNotForAfterEachV4Tool() {
+        ToolCatalog catalog = new ToolCatalog(Path.of("../prompts/tools_v4.yml"));
+
+        String rendered = catalog.render();
+
+        assertThat(catalog.tools()).allSatisfy(tool -> assertThat(tool.notFor()).as(tool.name()).isNotEmpty());
+        assertThat(catalog.tools()).allSatisfy(tool -> assertThat(tool.args()).as(tool.name())
+                .contains("sku", "location", "region", "category", "abc_class"));
+        // 도구 한 줄 다음에 Not for 한 줄이 붙는다.
+        assertThat(rendered.lines()).hasSize(ToolName.values().length * 2);
+        assertThat(rendered).contains("- reorder_needed (재주문 필요): ")
+                .contains("\n  Not for: the reorder_point value itself");
+    }
+
+    /** v3 프롬프트에 들어가는 tools.yml의 렌더링은 not_for를 더한 뒤에도 v3 측정 때와 같다. */
+    @Test
+    void v3CatalogHasNoNotForAndRendersOneLinePerTool() {
+        ToolCatalog catalog = new ToolCatalog(TOOLS_FILE);
+
+        assertThat(catalog.tools()).allSatisfy(tool -> assertThat(tool.notFor()).isEmpty());
+        assertThat(catalog.render()).doesNotContain("Not for");
+    }
+
+    @Test
     void failsWhenAToolIsMissing(@TempDir Path dir) throws IOException {
         String content = Files.readString(TOOLS_FILE, StandardCharsets.UTF_8);
         int cut = content.indexOf("  - name: reorder_needed");

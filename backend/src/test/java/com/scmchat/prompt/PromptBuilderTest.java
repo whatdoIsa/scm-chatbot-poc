@@ -10,6 +10,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -181,7 +185,7 @@ class PromptBuilderTest {
 
     @Test
     void routerPromptHasAsOfDateDateRulesToolsAndExamples() {
-        List<LlmMessage> messages = builder.buildRouter(QUESTION);
+        List<LlmMessage> messages = builder.buildRouter(PromptVersion.V3, QUESTION);
         String system = messages.get(0).content();
 
         assertThat(messages).hasSize(2);
@@ -197,11 +201,89 @@ class PromptBuilderTest {
 
     @Test
     void routerSystemPromptDoesNotDependOnTheQuestion() {
-        String first = builder.buildRouter(QUESTION).get(0).content();
-        String second = builder.buildRouter("재고보유일수가 가장 짧은 품목 5개는?").get(0).content();
+        String first = builder.buildRouter(PromptVersion.V3, QUESTION).get(0).content();
+        String second = builder.buildRouter(PromptVersion.V3, "재고보유일수가 가장 짧은 품목 5개는?").get(0).content();
 
         assertThat(second).isEqualTo(first);
         assertThat(first).doesNotContain(QUESTION);
+    }
+
+    /**
+     * v3은 v3-freeze 때의 프롬프트로 측정했다. v4를 더하면서 공용 코드(ToolCatalog, 라우터 조립)를 고쳤으므로
+     * v3 라우터의 system 메시지가 한 글자도 바뀌지 않았는지 v3-freeze 태그에서 계산한 해시로 고정한다(FR-25).
+     */
+    @Test
+    void v3RouterSystemPromptIsByteForByteTheOneMeasuredAtV3Freeze() {
+        String system = builder.buildRouter(PromptVersion.V3, QUESTION).get(0).content();
+
+        assertThat(system).hasSize(6163);
+        assertThat(sha256(system)).isEqualTo("fe293751cd45ea2895260bbb7d967e767d8bd628fb3dde52c0befec029178838");
+        assertThat(system).doesNotContain("Not for:", "\"abc_class\":");
+    }
+
+    @Test
+    void v4RouterPromptCarriesAllToolsTheirNotForListsAndConditionArguments() {
+        List<LlmMessage> messages = builder.buildRouter(PromptVersion.V4, QUESTION);
+        String system = messages.get(0).content();
+
+        assertThat(messages.get(1)).isEqualTo(LlmMessage.user(QUESTION));
+        assertThat(system).contains("- avg_daily_sales (", "- days_of_supply (", "- stockout_rate (",
+                "- forecast_accuracy (", "- below_safety_stock (", "- reorder_needed (");
+        // 도구마다 not_for가 한 줄씩 붙는다.
+        assertThat(system.split("\n  Not for: ", -1)).hasSize(7);
+        assertThat(system).contains("\"region\"", "\"category\"", "\"abc_class\"",
+                "args: sku, location, region, category, abc_class");
+        // 조건 인자에 넣을 수 있는 값은 차원 테이블의 값과 같다(시드 데이터, PRD 5.5).
+        assertThat(system).contains("스낵, 음료, 개인위생, 냉동식품, 생활용품", "수도권", "영남권", "충청권", "호남권");
+        assertThat(system).contains("지난주", "2026-10-26 ~ 2026-11-01");
+        assertThat(system.split("Question: ", -1)).hasSize(24);
+        assertThat(system).doesNotContain("{{", "CREATE TABLE");
+    }
+
+    /** 예시 밖에서 실제 품목 코드를 보여 주면 모델이 질문에 없는 SKU를 인자로 옮긴다(v3 측정에서 3건, PRD 11.1). */
+    @Test
+    void v4RouterInstructionsShowNoConcreteSkuOutsideTheExamples() {
+        String system = builder.buildRouter(PromptVersion.V4, QUESTION).get(0).content();
+        String instructions = system.substring(0, system.indexOf("Examples:"));
+
+        assertThat(instructions).doesNotContainPattern("SKU-\\d{3}");
+    }
+
+    @Test
+    void v4RouterSystemPromptDoesNotDependOnTheQuestionAndDiffersFromV3() {
+        String first = builder.buildRouter(PromptVersion.V4, QUESTION).get(0).content();
+        String second = builder.buildRouter(PromptVersion.V4, "스낵 카테고리의 결품률은?").get(0).content();
+
+        assertThat(second).isEqualTo(first);
+        assertThat(first).isNotEqualTo(builder.buildRouter(PromptVersion.V3, QUESTION).get(0).content());
+    }
+
+    @Test
+    void routerIsOnlyForRoutedVersions() {
+        assertThatThrownBy(() -> builder.buildRouter(PromptVersion.V1, QUESTION))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no router");
+        assertThatThrownBy(() -> builder.build(PromptVersion.V4, QUESTION))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("buildRouter");
+    }
+
+    @Test
+    void startsWithV4Configured() {
+        ChatProperties.Llm llm = new ChatProperties.Llm(
+                "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
+
+        new PromptBuilder(new ChatProperties(
+                "v4", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, 20, "../prompts", llm));
+    }
+
+    private static String sha256(String text) {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Test
@@ -246,6 +328,10 @@ class PromptBuilderTest {
         assertThat(PromptVersion.fromValue("v0")).isEqualTo(PromptVersion.V0);
         assertThat(PromptVersion.V2.value()).isEqualTo("v2");
         assertThat(PromptVersion.fromValue("v3")).isEqualTo(PromptVersion.V3);
+        assertThat(PromptVersion.fromValue("v4")).isEqualTo(PromptVersion.V4);
+        assertThat(PromptVersion.V3.routed()).isTrue();
+        assertThat(PromptVersion.V4.routed()).isTrue();
+        assertThat(PromptVersion.V2.routed()).isFalse();
         assertThatThrownBy(() -> PromptVersion.fromValue("v9")).isInstanceOf(IllegalArgumentException.class);
     }
 

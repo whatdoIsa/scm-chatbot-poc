@@ -131,6 +131,39 @@ class OllamaLlmClientTest {
         server.verify();
     }
 
+    /** v3은 이 스키마로 측정했다. v3-freeze 태그에서 직렬화한 값과 같아야 한다(ROUTE_V4를 더해도 바뀌지 않음). */
+    @Test
+    void v3RouteSchemaIsTheOneMeasuredAtV3Freeze() throws Exception {
+        assertThat(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(OutputFormat.ROUTE.schema()))
+                .isEqualTo("{\"type\":\"object\",\"properties\":{\"route\":{\"type\":\"string\",\"enum\":"
+                        + "[\"tool\",\"sql\",\"clarify\",\"refuse\"]},\"tool\":{\"type\":\"string\",\"enum\":[\"\","
+                        + "\"avg_daily_sales\",\"days_of_supply\",\"stockout_rate\",\"forecast_accuracy\","
+                        + "\"below_safety_stock\",\"reorder_needed\"]},\"sku\":{\"type\":\"string\"},\"location\":"
+                        + "{\"type\":\"string\"},\"days\":{\"type\":\"integer\"},\"start_date\":{\"type\":\"string\"},"
+                        + "\"end_date\":{\"type\":\"string\"},\"output\":{\"type\":\"string\",\"enum\":[\"\",\"value\","
+                        + "\"ranking\",\"list\",\"count\"]},\"top_n\":{\"type\":\"integer\"},\"order\":{\"type\":"
+                        + "\"string\",\"enum\":[\"\",\"asc\",\"desc\"]},\"message\":{\"type\":\"string\"}},"
+                        + "\"required\":[\"route\",\"tool\",\"sku\",\"location\",\"days\",\"start_date\",\"end_date\","
+                        + "\"output\",\"top_n\",\"order\",\"message\"]}");
+    }
+
+    /** ROUTE_V4는 ROUTE의 location 다음에 조건 인자 세 개를 끼운 것이다(API_SPEC 9.1). */
+    @Test
+    void v4RouteSchemaInsertsTheConditionArgumentsAfterLocation() {
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> v4 = (java.util.Map<String, Object>) OutputFormat.ROUTE_V4.schema().get("properties");
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> v3 = (java.util.Map<String, Object>) OutputFormat.ROUTE.schema().get("properties");
+
+        assertThat(v4.keySet()).containsExactly("route", "tool", "sku", "location", "region", "category", "abc_class",
+                "days", "start_date", "end_date", "output", "top_n", "order", "message");
+        assertThat(OutputFormat.ROUTE_V4.schema().get("required")).isEqualTo(List.copyOf(v4.keySet()));
+        assertThat(v4.get("abc_class")).isEqualTo(java.util.Map.of("type", "string", "enum", List.of("", "A", "B", "C")));
+        v3.forEach((key, value) -> assertThat(v4.get(key)).as(key).isEqualTo(value));
+        assertThat(OutputFormat.ROUTE_V4.isRoute()).isTrue();
+        assertThat(OutputFormat.ACTION.isRoute()).isFalse();
+    }
+
     @Test
     void routeSchemaListsEveryServerTool() {
         @SuppressWarnings("unchecked")

@@ -11,7 +11,9 @@ import java.util.Map;
  */
 public enum OutputFormat {
     ACTION(actionSchema()),
-    ROUTE(routeSchema()),
+    ROUTE(routeSchema(false)),
+    /** v4 라우터. ROUTE에 조건 인자 region, category, abc_class를 location 다음에 더한다(API_SPEC 9.1). */
+    ROUTE_V4(routeSchema(true)),
     ANSWER(answerSchema());
 
     private final Map<String, Object> schema;
@@ -36,13 +38,19 @@ public enum OutputFormat {
         return object(properties);
     }
 
-    private static Map<String, Object> routeSchema() {
+    /** v3의 ROUTE 스키마는 conditions가 false일 때의 결과이며, v3 측정 때와 같아야 한다. */
+    private static Map<String, Object> routeSchema(boolean conditions) {
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put("route", enumOf("tool", "sql", "clarify", "refuse"));
         properties.put("tool", enumOf("", "avg_daily_sales", "days_of_supply", "stockout_rate", "forecast_accuracy",
                 "below_safety_stock", "reorder_needed"));
         properties.put("sku", Map.of("type", "string"));
         properties.put("location", Map.of("type", "string"));
+        if (conditions) {
+            properties.put("region", Map.of("type", "string"));
+            properties.put("category", Map.of("type", "string"));
+            properties.put("abc_class", enumOf("", "A", "B", "C"));
+        }
         properties.put("days", Map.of("type", "integer"));
         properties.put("start_date", Map.of("type", "string"));
         properties.put("end_date", Map.of("type", "string"));
@@ -51,6 +59,11 @@ public enum OutputFormat {
         properties.put("order", enumOf("", "asc", "desc"));
         properties.put("message", Map.of("type", "string"));
         return object(properties);
+    }
+
+    /** 라우터 출력 형식인지. ChatService가 라우터 단계의 형식을 고를 때와 테스트 대역이 쓴다. */
+    public boolean isRoute() {
+        return this == ROUTE || this == ROUTE_V4;
     }
 
     private static Map<String, Object> answerSchema() {

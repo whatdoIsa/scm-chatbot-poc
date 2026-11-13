@@ -419,6 +419,74 @@ class ChatServiceTest {
         assertThat(saved.getAnswerText()).isEqualTo("서울센터 SKU-007의 재고보유일수는 12.5일입니다.");
     }
 
+    /** v4는 v3과 같은 흐름이고 라우터의 메시지(v4 프롬프트)와 출력 형식(ROUTE_V4)만 다르다. 조건 인자는 도구 호출까지 전달된다. */
+    @Test
+    void v4ToolRouteUsesTheV4RouterAndPassesConditionArgumentsToTheTool() {
+        QueryResult rows = new QueryResult(List.of("stockout_rate"), List.of(List.<Object>of(0.0213)), false);
+        ToolCall expectedCall = new ToolCall(ToolName.STOCKOUT_RATE, ToolOutput.VALUE, null, null, null,
+                LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31), null, null, "영남권", "스낵", null);
+        when(toolExecutor.execute(expectedCall)).thenReturn(rows);
+        ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply("{\"route\":\"tool\",\"tool\":\"stockout_rate\","
+                + "\"sku\":\"\",\"location\":\"\",\"region\":\"영남권\",\"category\":\"스낵\",\"abc_class\":\"\","
+                + "\"days\":0,\"start_date\":\"2026-10-01\",\"end_date\":\"2026-10-31\",\"output\":\"value\","
+                + "\"top_n\":0,\"order\":\"\",\"message\":\"\"}", 0, 0),
+                new LlmReply("{\"answer\":\"10월 영남권 스낵의 결품률은 0.0213입니다.\"}", 0, 0));
+
+        ChatResult result = serviceWith(scripted).answer("10월 영남권 스낵 결품률은?", PromptVersion.V4);
+
+        assertThat(result.action()).isEqualTo(Action.TOOL);
+        assertThat(result.status()).isEqualTo(ChatStatus.OK);
+        assertThat(result.promptVersion()).isEqualTo(PromptVersion.V4);
+        assertThat(result.result()).isEqualTo(rows);
+        assertThat(result.toolArgs()).containsExactly(
+                java.util.Map.entry("region", "영남권"), java.util.Map.entry("category", "스낵"),
+                java.util.Map.entry("start_date", "2026-10-01"), java.util.Map.entry("end_date", "2026-10-31"),
+                java.util.Map.entry("output", "value"));
+        assertThat(scripted.formats).containsExactly(OutputFormat.ROUTE_V4, OutputFormat.ANSWER);
+        String routerSystem = scripted.requests.get(0).get(0).content();
+        assertThat(routerSystem).contains("Not for:", "\"abc_class\"");
+        assertThat(scripted.requests.get(0).get(1)).isEqualTo(LlmMessage.user("10월 영남권 스낵 결품률은?"));
+        assertThat(result.answerStatus()).isEqualTo(AnswerStatus.VERIFIED);
+
+        ChatLog saved = savedChatLog();
+        assertThat(saved.getPromptVersion()).isEqualTo("v4");
+        assertThat(saved.getToolArgs()).isEqualTo("{\"region\":\"영남권\",\"category\":\"스낵\","
+                + "\"start_date\":\"2026-10-01\",\"end_date\":\"2026-10-31\",\"output\":\"value\"}");
+    }
+
+    @Test
+    void v4SqlRouteGeneratesSqlWithTheFrozenV1PromptAndValidatesIt() {
+        QueryResult rows = new QueryResult(List.of("on_hand"), List.of(List.<Object>of(120)), false);
+        when(executor.execute("SELECT on_hand FROM inventory_daily LIMIT 200")).thenReturn(rows);
+        ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply(ROUTE_SQL, 0, 0),
+                new LlmReply("{\"action\":\"sql\",\"sql\":\"SELECT on_hand FROM inventory_daily\",\"message\":\"\"}", 0, 0),
+                new LlmReply("{\"answer\":\"\"}", 0, 0));
+
+        ChatResult result = serviceWith(scripted).answer(QUESTION, PromptVersion.V4);
+
+        assertThat(result.action()).isEqualTo(Action.SQL);
+        assertThat(result.route()).isEqualTo(Route.SQL);
+        assertThat(result.sql()).isEqualTo("SELECT on_hand FROM inventory_daily LIMIT 200");
+        assertThat(scripted.formats).containsExactly(OutputFormat.ROUTE_V4, OutputFormat.ACTION, OutputFormat.ANSWER);
+        // SQL 단계는 v3과 같이 v1 프롬프트를 그대로 쓴다.
+        assertThat(scripted.requests.get(1))
+                .isEqualTo(new PromptBuilder(properties()).build(PromptVersion.V1, QUESTION));
+    }
+
+    @Test
+    void v4RejectsLocationAndRegionTogetherWithoutRunningAnything() {
+        ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply("{\"route\":\"tool\","
+                + "\"tool\":\"days_of_supply\",\"location\":\"부산센터\",\"region\":\"영남권\",\"output\":\"value\"}", 0, 0));
+
+        ChatResult result = serviceWith(scripted).answer("부산센터 영남권 재고일수는?", PromptVersion.V4);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.TOOL_REJECTED);
+        assertThat(result.message()).contains("location and region");
+        assertThat(result.toolArgs()).containsEntry("location", "부산센터").containsEntry("region", "영남권");
+        verify(toolExecutor, never()).execute(any());
+        verify(executor, never()).execute(any());
+    }
+
     @Test
     void v3RejectsInvalidToolArgumentsWithoutFallingBackToSql() {
         ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply(

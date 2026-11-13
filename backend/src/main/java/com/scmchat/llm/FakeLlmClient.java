@@ -33,7 +33,7 @@ public class FakeLlmClient implements LlmClient {
     private static String defaultReply(OutputFormat format) {
         return switch (format) {
             case ACTION -> DEFAULT_REPLY;
-            case ROUTE -> DEFAULT_ROUTE_REPLY;
+            case ROUTE, ROUTE_V4 -> DEFAULT_ROUTE_REPLY;
             case ANSWER -> DEFAULT_ANSWER_REPLY;
         };
     }

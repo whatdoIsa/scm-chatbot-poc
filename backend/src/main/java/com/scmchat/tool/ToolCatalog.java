@@ -19,7 +19,9 @@ import org.yaml.snakeyaml.Yaml;
  */
 public class ToolCatalog {
 
-    public record Tool(String name, String metric, String description, List<String> args, List<String> outputs) {
+    /** notFor는 이 도구가 답하지 않는 질문(v4, API_SPEC 9.2). tools.yml에는 없어서 빈 목록이다. */
+    public record Tool(String name, String metric, String description, List<String> args, List<String> outputs,
+            List<String> notFor) {
     }
 
     private final List<Tool> tools;
@@ -37,7 +39,7 @@ public class ToolCatalog {
         }
         this.tools = ((List<Map<String, Object>>) entries).stream()
                 .map(entry -> new Tool(text(entry, "name"), text(entry, "metric"), text(entry, "description"),
-                        strings(entry, "args"), strings(entry, "outputs")))
+                        strings(entry, "args"), strings(entry, "outputs"), optionalStrings(entry, "not_for")))
                 .toList();
         requireMatchesToolNames();
     }
@@ -46,12 +48,19 @@ public class ToolCatalog {
         return tools;
     }
 
+    /** not_for가 없는 도구는 v3 때와 같은 한 줄로 렌더링한다. tools.yml의 렌더링 결과는 바뀌지 않는다. */
     public String render() {
-        return tools.stream()
-                .map(tool -> "- " + tool.name() + " (" + tool.metric() + "): " + tool.description()
-                        + " args: " + String.join(", ", tool.args()) + "."
-                        + " output: " + String.join(" | ", tool.outputs()) + ".")
-                .collect(Collectors.joining("\n"));
+        return tools.stream().map(ToolCatalog::render).collect(Collectors.joining("\n"));
+    }
+
+    private static String render(Tool tool) {
+        String line = "- " + tool.name() + " (" + tool.metric() + "): " + tool.description()
+                + " args: " + String.join(", ", tool.args()) + "."
+                + " output: " + String.join(" | ", tool.outputs()) + ".";
+        if (tool.notFor().isEmpty()) {
+            return line;
+        }
+        return line + "\n  Not for: " + String.join("; ", tool.notFor()) + ".";
     }
 
     private void requireMatchesToolNames() {
@@ -77,6 +86,13 @@ public class ToolCatalog {
             throw new IllegalStateException("tools.yml entry is missing " + key + ": " + entry);
         }
         return value.toString().strip();
+    }
+
+    private static List<String> optionalStrings(Map<String, Object> entry, String key) {
+        if (!entry.containsKey(key)) {
+            return List.of();
+        }
+        return strings(entry, key);
     }
 
     private static List<String> strings(Map<String, Object> entry, String key) {

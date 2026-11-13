@@ -715,6 +715,7 @@ v3과 다른 점만 적는다. 응답 형식(8.1), 답변 단계, 숫자 후검�
 | `prompts/tools_v4.yml` | 도구 목록. 항목마다 `not_for`(이 도구가 답하지 않는 질문)를 둔다 |
 | `prompts/router_fewshot_v4.json` | v4 라우터 예시. 네 골든셋과 겹치지 않는다 |
 | `eval/golden_set_v4.json`, `.sha256` | 4.5 형식, id Q71~Q110(`GoldenSetLoader`의 id는 `Q` + 숫자 2~3자리) |
+| `backend/src/test/resources/router_dev_v4.json` | 라우터 개발 세트 41문항(질문, 기대 경로, 도구 경로면 도구와 검증 뒤 인자). v4 라우터 프롬프트를 다듬을 때 평가 세트 대신 본다. 네 골든셋·라우터 예시와 겹치지 않고 평가 세트를 보지 않고 썼다. `RouterDevSetIT`(`ollama` 태그)가 v4와 v3 라우터로 재서 `build/router-dev/`에 문항별 결과를 쓴다 |
 
 `prompts/v3_router.txt`, `tools.yml`, `router_fewshot.json`은 v3 전용으로 남고 바꾸지 않는다.
 
@@ -740,7 +741,7 @@ v3과 다른 점만 적는다. 응답 형식(8.1), 답변 단계, 숫자 후검�
 | llm | `OutputFormat` | `ROUTE_V4` 추가 |
 | prompt | `PromptVersion` | `V4("v4")` 추가 |
 | prompt | `PromptBuilder` | `buildRouter(PromptVersion version, String question)`. V3은 기존 세 파일, V4는 9.2의 파일을 쓴다 |
-| tool | `ToolCatalog` | `not_for`가 있으면 렌더링에 포함한다. `tools.yml`의 렌더링 결과는 바뀌지 않는다 |
+| tool | `ToolCatalog` | `not_for`가 있으면 도구 줄 다음에 `  Not for: a; b.` 한 줄로 렌더링한다. `tools.yml`의 렌더링 결과는 바뀌지 않는다(v3-freeze의 해시로 테스트에 고정) |
 | service | `ChatService` | V4는 V3과 같은 흐름이며 라우터 메시지와 출력 형식만 다르다 |
 | validator | `SqlValidator` | 접두 문자열 검사가 닫는 따옴표 앞의 한 글자(`'B'`)에 걸리지 않게 한다 |
 | llm | `OracleLlmClient` | `ROUTE_V4`에도 정답 action에 맞춘 route를 돌려준다 |

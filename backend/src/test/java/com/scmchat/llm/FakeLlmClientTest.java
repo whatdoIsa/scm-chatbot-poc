@@ -40,6 +40,8 @@ class FakeLlmClientTest {
 
         assertThat(parser.parseRoute(client.generate(MESSAGES, OutputFormat.ROUTE).rawContent()).route())
                 .isEqualTo(Route.CLARIFY);
+        assertThat(parser.parseRoute(client.generate(MESSAGES, OutputFormat.ROUTE_V4).rawContent()).route())
+                .isEqualTo(Route.CLARIFY);
         assertThat(parser.parseAnswer(client.generate(MESSAGES, OutputFormat.ANSWER).rawContent())).isNull();
     }
 

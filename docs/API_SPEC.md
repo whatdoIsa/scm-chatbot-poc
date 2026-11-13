@@ -548,7 +548,8 @@ Rows:
 {행마다 한 줄, 값은 " | "로 구분, NULL은 null}
 ```
 
-- 지시문은 영어, 답변 문장은 한국어 1~2문장으로 쓰게 한다. 결과에 있는 값만 쓰고 새로 계산하지 말라고 지시한다.
+- 지시문은 영어, 답변 문장은 한국어 1~2문장으로 쓰게 한다. 결과에 있는 값만 쓰고 새로 계산하지 말라고 지시한다. 값만 내지 않고 완전한 문장으로 쓰도록 예시 하나를 둔다(질문은 `fewshot.json`의 것이며 세 골든셋과 겹치지 않는다).
+- 숫자 셀은 지수 표기 없이 적는다(`BigDecimal.toPlainString`).
 
 `prompts/tools.yml` (`{{TOOLS}}`로 렌더링)
 
@@ -645,13 +646,14 @@ answer_verified_rate numeric(5,4)
 | mapper | `ToolQuery` (record) | `String sku, String location, LocalDate asOfDate, LocalDate fromDate, LocalDate toDate, Integer days, Integer limit, boolean ascending` |
 | mapper | `ScmRoMapper` (annotation) | scm_ro `SqlSessionFactory`에 붙일 매퍼 표시. `@Mapper`가 붙은 매퍼는 app DataSource |
 | config | `MyBatisConfig` | `sqlSessionFactory`(app, `@Primary`, `classpath:mapper/*.xml`)와 `scmRoSqlSessionFactory`(scm_ro, `classpath:mapper/scmro/*.xml`). `SqlSessionFactory` 빈을 직접 등록하면 자동 구성이 물러나므로 둘 다 여기서 만든다. 기존 `EvalSummaryMapper`는 app DataSource를 그대로 쓴다 |
-| answer | `NumberVerifier` | `Verification verify(String answer, VerificationContext context)` → `Verification(boolean ok, List<String> unverified)` |
+| answer | `NumberVerifier` | `Verification verify(String answer, VerificationContext context)` → `Verification(boolean ok, List<String> unverified)`. `unverified`는 허용되지 않은 숫자 토큰(문장에 적힌 그대로) |
+| entity | `ChatLog`, `EvalResult`, `EvalRun` | `recordAnswer(String answerText, String answerStatus)`, `EvalRun.recordAnswerVerifiedRate(BigDecimal)`와 getter |
 | answer | `VerificationContext` (record) | `String question, QueryResult result, ToolCall toolCall, LocalDate asOfDate` |
 | answer | `AnswerStatus` (enum) | `VERIFIED`, `REJECTED`, `SKIPPED` |
 | prompt | `PromptVersion` | `V3("v3")` 추가 |
 | prompt | `PromptBuilder` | `List<LlmMessage> buildRouter(String question)`, `List<LlmMessage> buildAnswer(String question, QueryResult result)` 추가. `build(V3, …)`은 지원하지 않는다(SQL 단계는 `build(V1, …)`) |
 | service | `ChatStatus` | `TOOL_REJECTED` 추가 |
-| service | `ChatResult` | `Route route, String toolName, Map<String, Object> toolArgs` 추가(T14). `String answer, AnswerStatus answerStatus`는 T15에서 추가. v0~v2용 12개 인자 생성자는 그대로 둔다 |
+| service | `ChatResult` | `Route route, String toolName, Map<String, Object> toolArgs`(T14), `String answerText, AnswerStatus answerStatus`(T15) 추가. `answerText`는 모델이 쓴 문장 원문이며 `REJECTED`여도 담긴다. 응답의 `answer`에는 `VERIFIED`일 때만 싣는다. v0~v2용 12개 인자 생성자는 그대로 둔다 |
 | tool | `ToolCall.toArgsMap()`, `RawToolArgs.toArgsMap()`, `ToolArgsJson.write(Map)` | 응답의 `tool.args`와 `tool_args` 컬럼에 쓸 인자. 키는 라우터 출력과 같고 쓰지 않는 인자는 뺀다 |
 | dto | `ChatResponse` | `Route route, ToolInfo tool` 추가. `ToolInfo(String name, Map<String, Object> args)` |
 | entity | `ChatLog`, `EvalResult` | `recordRoute(String route, String toolName, String toolArgs)`와 getter. 생성자는 그대로 둔다 |

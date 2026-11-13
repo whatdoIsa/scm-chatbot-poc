@@ -97,7 +97,7 @@ public class PromptBuilder {
     private record RouterFiles(String template, String tools, String fewShot) {
     }
 
-    /** 답변 문장 단계의 메시지(v3, v4 공통(API_SPEC 8.3). 질문과 조회 결과를 user 메시지로 준다. */
+    /** 답변 문장 단계의 메시지(v3, v4 공통, API_SPEC 8.3). 질문과 조회 결과를 user 메시지로 준다. */
     public List<LlmMessage> buildAnswer(String question, QueryResult result) {
         String system = requireNoPlaceholder(
                 render(readTemplate("v3_answer"), Map.of("AS_OF_DATE", asOfDate.toString())), "v3_answer");

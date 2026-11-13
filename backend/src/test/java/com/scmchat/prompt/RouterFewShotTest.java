@@ -173,6 +173,9 @@ class RouterFewShotTest {
                     .forEach(item -> seen.add(normalize(item.get("question").asText())));
         }
         exampleFiles().flatMap(file -> examples(file).stream()).forEach(example -> seen.add(normalize(example.question())));
+        // SQL 단계 예시(fewshot.json)도 본다. 그 5개는 v3 라우터 예시 5개와 같은 질문이라(v3 설계) 개수는 늘지 않는다.
+        new FewShotLoader(Path.of("../prompts/fewshot.json")).examples()
+                .forEach(example -> seen.add(normalize(example.question())));
         assertThat(seen).hasSize(110 + 10 + 23);
 
         com.fasterxml.jackson.databind.JsonNode dev =

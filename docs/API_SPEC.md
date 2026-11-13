@@ -732,7 +732,7 @@ v3과 다른 점만 적는다. 응답 형식(8.1), 답변 단계, 숫자 후검�
 
 `Dimensions`에 `List<String> categories()`, `List<String> regions()`를 더한다. v3 라우터는 이 인자를 내지 않으므로 v3의 도구 호출 결과는 바뀌지 않는다.
 
-결과 컬럼은 8.4와 같다. 조건은 매퍼 XML에서 product·location 조인과 `#{}` 바인딩으로 건다.
+결과 컬럼은 8.4와 같다. 조건은 매퍼 XML에서 product·location에 대한 `EXISTS` 서브쿼리와 `#{}` 바인딩으로 건다.
 
 ### 9.4 자바 인터페이스 변경
 

@@ -36,7 +36,7 @@ class RouterFewShotTest {
 
     private final LlmOutputParser parser = new LlmOutputParser();
     private final ToolArgsValidator validator = new ToolArgsValidator(SEED_DIMENSIONS, new ChatProperties(
-            "v3", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, "../prompts",
+            "v3", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, 20, "../prompts",
             new ChatProperties.Llm("fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120)));
     // Gradle은 backend/를 작업 디렉터리로 테스트를 실행한다.
     private final List<FewShotLoader.FewShot> examples =

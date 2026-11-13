@@ -72,7 +72,7 @@ class ChatControllerTest {
                           "rowCount": 1, "truncated": false,
                           "asOfDate": "2026-11-08", "promptVersion": "v1", "model": "qwen2.5-coder:7b",
                           "attempts": 1, "elapsedMs": 6120, "chatLogId": 41,
-                          "route": null, "tool": null
+                          "route": null, "tool": null, "answer": null, "answerStatus": null
                         }
                         """, JsonCompareMode.STRICT));
     }
@@ -91,7 +91,7 @@ class ChatControllerTest {
                           "sql": null, "columns": null, "rows": null, "rowCount": null, "truncated": false,
                           "asOfDate": "2026-11-08", "promptVersion": "v1", "model": "qwen2.5-coder:7b",
                           "attempts": 1, "elapsedMs": 2310, "chatLogId": 42,
-                          "route": null, "tool": null
+                          "route": null, "tool": null, "answer": null, "answerStatus": null
                         }
                         """, JsonCompareMode.STRICT));
     }
@@ -106,7 +106,8 @@ class ChatControllerTest {
         args.put("output", "value");
         when(chatService.answer(any(), any())).thenReturn(new ChatResult(
                 Action.TOOL, ChatStatus.OK, null, null, rows, PromptVersion.V3, "qwen2.5-coder:7b",
-                1, 900, 40, 3100, 77L, com.scmchat.llm.Route.TOOL, "days_of_supply", args));
+                1, 900, 40, 3100, 77L, com.scmchat.llm.Route.TOOL, "days_of_supply", args,
+                "서울센터 SKU-026의 재고보유일수는 약 12.5일입니다.", com.scmchat.answer.AnswerStatus.VERIFIED));
 
         postQuestion("서울센터 SKU-026의 재고보유일수는?")
                 .andExpect(status().isOk())
@@ -120,9 +121,26 @@ class ChatControllerTest {
                           "attempts": 1, "elapsedMs": 3100, "chatLogId": 77,
                           "route": "tool",
                           "tool": {"name": "days_of_supply",
-                                   "args": {"sku": "SKU-026", "location": "서울센터", "output": "value"}}
+                                   "args": {"sku": "SKU-026", "location": "서울센터", "output": "value"}},
+                          "answer": "서울센터 SKU-026의 재고보유일수는 약 12.5일입니다.", "answerStatus": "VERIFIED"
                         }
                         """, JsonCompareMode.STRICT));
+    }
+
+    @Test
+    void hidesAnAnswerThatFailedNumberVerification() throws Exception {
+        QueryResult rows = new QueryResult(List.of("on_hand"), List.of(List.<Object>of(284)), false);
+        when(chatService.answer(any(), any())).thenReturn(new ChatResult(
+                Action.SQL, ChatStatus.OK, null, "SELECT 1", rows, PromptVersion.V3, "qwen2.5-coder:7b",
+                3, 4000, 90, 9000, 80L, com.scmchat.llm.Route.SQL, null, null,
+                "SKU-007의 현재 재고는 300개입니다.", com.scmchat.answer.AnswerStatus.REJECTED));
+
+        postQuestion("SKU-007의 현재 재고는?")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows[0][0]").value(284))
+                .andExpect(jsonPath("$.answer").doesNotExist())
+                .andExpect(jsonPath("$.answerStatus").value("REJECTED"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("300개"))));
     }
 
     @Test
@@ -130,7 +148,7 @@ class ChatControllerTest {
         when(chatService.answer(any(), any())).thenReturn(new ChatResult(
                 Action.TOOL, ChatStatus.TOOL_REJECTED, "unknown location: 서울", null, null, PromptVersion.V3,
                 "qwen2.5-coder:7b", 1, 900, 40, 2500, 78L, com.scmchat.llm.Route.TOOL, "days_of_supply",
-                java.util.Map.of("location", "서울")));
+                java.util.Map.of("location", "서울"), null, null));
 
         postQuestion("서울 재고보유일수는?")
                 .andExpect(status().isUnprocessableEntity())
@@ -147,7 +165,7 @@ class ChatControllerTest {
     void returnsToolObjectForARejectedCallEvenWithoutAToolName() throws Exception {
         when(chatService.answer(any(), any())).thenReturn(new ChatResult(
                 Action.TOOL, ChatStatus.TOOL_REJECTED, "unknown tool: null", null, null, PromptVersion.V3,
-                "qwen2.5-coder:7b", 1, 900, 40, 2500, 79L, com.scmchat.llm.Route.TOOL, null, java.util.Map.of()));
+                "qwen2.5-coder:7b", 1, 900, 40, 2500, 79L, com.scmchat.llm.Route.TOOL, null, java.util.Map.of(), null, null));
 
         postQuestion("그 지표 알려줘")
                 .andExpect(status().isUnprocessableEntity())

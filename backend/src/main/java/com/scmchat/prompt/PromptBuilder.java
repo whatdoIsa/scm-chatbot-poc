@@ -1,10 +1,12 @@
 package com.scmchat.prompt;
 
 import com.scmchat.config.ChatProperties;
+import com.scmchat.executor.QueryResult;
 import com.scmchat.llm.LlmMessage;
 import com.scmchat.tool.ToolCatalog;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 /** prompts/v{n}.txt를 system 메시지로, 질문 원문을 user 메시지로 조립한다(API_SPEC 4.1). */
@@ -45,6 +48,7 @@ public class PromptBuilder {
         if (configured == PromptVersion.V3) {
             buildRouter("기동 확인");
             build(PromptVersion.V1, "기동 확인");
+            buildAnswer("기동 확인", new QueryResult(List.of("v"), List.of(), false));
         } else if (configured != PromptVersion.V0) {
             build(configured, "기동 확인");
         }
@@ -77,6 +81,28 @@ public class PromptBuilder {
             routerSystemPrompt = requireNoPlaceholder(render(readTemplate("v3_router"), values), "v3_router");
         }
         return routerSystemPrompt;
+    }
+
+    /** v3 답변 문장 단계의 메시지(API_SPEC 8.3). 질문과 조회 결과를 user 메시지로 준다. */
+    public List<LlmMessage> buildAnswer(String question, QueryResult result) {
+        String system = requireNoPlaceholder(
+                render(readTemplate("v3_answer"), Map.of("AS_OF_DATE", asOfDate.toString())), "v3_answer");
+        StringBuilder user = new StringBuilder();
+        user.append("Question: ").append(question).append('\n');
+        user.append("Columns: ").append(String.join(", ", result.columns())).append('\n');
+        user.append("Rows:");
+        for (List<Object> row : result.rows()) {
+            user.append('\n').append(row.stream().map(PromptBuilder::cellText).collect(Collectors.joining(" | ")));
+        }
+        return List.of(LlmMessage.system(system), LlmMessage.user(user.toString()));
+    }
+
+    /** 숫자는 지수 표기 없이, NULL은 null로 적는다. */
+    private static String cellText(Object value) {
+        if (value == null) {
+            return "null";
+        }
+        return value instanceof BigDecimal decimal ? decimal.toPlainString() : value.toString();
     }
 
     /** v2의 실행 오류 재시도 메시지(API_SPEC 3.3). 이전 대화에 모델의 원문과 PostgreSQL 오류를 덧붙인다. */

@@ -233,3 +233,23 @@ footer {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.sentence {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-left: 3px solid var(--blue);
+  background: rgba(49, 130, 246, 0.06);
+  border-radius: 4px;
+}
+
+.sentence p {
+  margin: 0;
+}
+
+.small {
+  font-size: 12px;
+}
+
+.sentence .small {
+  margin-top: 6px;
+}

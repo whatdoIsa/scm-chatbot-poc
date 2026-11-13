@@ -118,7 +118,7 @@ class GraderTest {
     void classifiesRejectedToolCallAsToolArgument() {
         ChatResult rejected = new ChatResult(Action.TOOL, ChatStatus.TOOL_REJECTED, "unknown location: 서울", null,
                 null, PromptVersion.V3, "m", 1, 0, 0, 1, 1L, com.scmchat.llm.Route.TOOL, "days_of_supply",
-                java.util.Map.of("location", "서울"));
+                java.util.Map.of("location", "서울"), null, null);
 
         assertThat(grader.grade(SQL_ITEM, rejected, EXPECTED))
                 .isEqualTo(new GradeResult(false, ErrorType.TOOL_ARGUMENT, "unknown location: 서울"));
@@ -156,7 +156,7 @@ class GraderTest {
     private static ChatResult toolAnswer(ChatStatus status, QueryResult result) {
         return new ChatResult(Action.TOOL, status, status == ChatStatus.OK ? null : "reason", null, result,
                 PromptVersion.V3, "m", 1, 0, 0, 1, 1L, com.scmchat.llm.Route.TOOL, "days_of_supply",
-                java.util.Map.of("sku", "SKU-007", "output", "value"));
+                java.util.Map.of("sku", "SKU-007", "output", "value"), null, null);
     }
 
     private static ChatResult answer(Action action, ChatStatus status, QueryResult result) {

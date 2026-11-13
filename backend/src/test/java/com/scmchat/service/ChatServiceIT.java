@@ -2,6 +2,7 @@ package com.scmchat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.scmchat.answer.AnswerStatus;
 import com.scmchat.entity.ChatLog;
 import com.scmchat.llm.Action;
 import com.scmchat.llm.FakeLlmClient;
@@ -140,7 +141,9 @@ class ChatServiceIT {
         assertThat(result.sql()).isNull();
         assertThat(result.result().columns()).containsExactly("days_of_supply");
         assertThat(result.result().rows()).hasSize(1);
-        assertThat(result.attempts()).isEqualTo(1);
+        // 라우터 1회와 답변 문장 1회. Fake의 기본 답변은 빈 문장이라 SKIPPED다.
+        assertThat(result.attempts()).isEqualTo(2);
+        assertThat(result.answerStatus()).isEqualTo(AnswerStatus.SKIPPED);
 
         ChatLog saved = chatLogRepository.findById(result.chatLogId()).orElseThrow();
         assertThat(saved.getPromptVersion()).isEqualTo("v3");
@@ -196,7 +199,31 @@ class ChatServiceIT {
         assertThat(result.route()).isEqualTo(Route.SQL);
         assertThat(result.toolName()).isNull();
         assertThat(result.sql()).isEqualTo("SELECT sku FROM product ORDER BY sku LIMIT 200");
+        // 50행은 chat.answer-max-rows(20)를 넘어 답변 문장을 만들지 않는다.
         assertThat(result.result().rows()).hasSize(50);
         assertThat(result.attempts()).isEqualTo(2);
+        assertThat(result.answerStatus()).isEqualTo(AnswerStatus.SKIPPED);
+    }
+
+    @Test
+    void v3VerifiesTheAnswerAgainstTheToolResultAndLogsIt() {
+        fakeLlm.enqueue("{\"route\":\"tool\",\"tool\":\"reorder_needed\",\"location\":\"대구센터\",\"output\":\"count\"}",
+                "{\"answer\":\"대구센터에서 재주문이 필요한 품목은 5개입니다.\"}",
+                "{\"route\":\"tool\",\"tool\":\"reorder_needed\",\"location\":\"대구센터\",\"output\":\"count\"}",
+                "{\"answer\":\"대구센터에서 재주문이 필요한 품목은 7개입니다.\"}");
+
+        ChatResult verified = chatService.answer("대구센터에서 재주문이 필요한 품목 수는?", PromptVersion.V3);
+        ChatResult rejected = chatService.answer("대구센터에서 재주문이 필요한 품목 수는?", PromptVersion.V3);
+
+        assertThat(verified.result().rows().get(0).get(0)).isEqualTo(5L);
+        assertThat(verified.answerStatus()).isEqualTo(AnswerStatus.VERIFIED);
+        assertThat(rejected.answerStatus()).isEqualTo(AnswerStatus.REJECTED);
+        ChatLog verifiedLog = chatLogRepository.findById(verified.chatLogId()).orElseThrow();
+        ChatLog rejectedLog = chatLogRepository.findById(rejected.chatLogId()).orElseThrow();
+        assertThat(verifiedLog.getAnswerStatus()).isEqualTo("VERIFIED");
+        assertThat(verifiedLog.getAnswerText()).isEqualTo("대구센터에서 재주문이 필요한 품목은 5개입니다.");
+        assertThat(rejectedLog.getAnswerStatus()).isEqualTo("REJECTED");
+        assertThat(rejectedLog.getAnswerText()).contains("7개");
+        assertThat(rejectedLog.getStatus()).isEqualTo("OK");
     }
 }

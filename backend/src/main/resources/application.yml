@@ -15,6 +15,7 @@ chat:
   data-start-date: 2026-08-10
   max-rows: 1000
   validator-limit: 200
+  answer-max-rows: 20
   prompts-dir: ../prompts
   llm:
     provider: fake

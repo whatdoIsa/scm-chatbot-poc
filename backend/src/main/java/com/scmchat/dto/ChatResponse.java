@@ -1,5 +1,6 @@
 package com.scmchat.dto;
 
+import com.scmchat.answer.AnswerStatus;
 import com.scmchat.executor.QueryResult;
 import com.scmchat.llm.Action;
 import com.scmchat.llm.Route;
@@ -25,7 +26,9 @@ public record ChatResponse(
         int elapsedMs,
         Long chatLogId,
         Route route,
-        ToolInfo tool) {
+        ToolInfo tool,
+        String answer,
+        AnswerStatus answerStatus) {
 
     /** v3 도구 경로의 근거(API_SPEC 8.1). */
     public record ToolInfo(String name, Map<String, Object> args) {
@@ -49,6 +52,9 @@ public record ChatResponse(
                 result.elapsedMs(),
                 result.chatLogId(),
                 result.route(),
-                result.route() == Route.TOOL ? new ToolInfo(result.toolName(), result.toolArgs()) : null);
+                result.route() == Route.TOOL ? new ToolInfo(result.toolName(), result.toolArgs()) : null,
+                // 숫자 후검증을 통과한 문장만 내보낸다.
+                result.answerStatus() == AnswerStatus.VERIFIED ? result.answerText() : null,
+                result.answerStatus());
     }
 }

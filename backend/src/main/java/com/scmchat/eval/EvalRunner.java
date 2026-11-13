@@ -136,6 +136,9 @@ public class EvalRunner implements ApplicationRunner {
             if (actual.route() != null) {
                 result.recordRoute(actual.route().value(), actual.toolName(), ToolArgsJson.write(actual.toolArgs()));
             }
+            if (actual.answerStatus() != null) {
+                result.recordAnswer(actual.answerText(), actual.answerStatus().name());
+            }
             results.add(evalResultRepository.save(result));
         }
     }
@@ -155,6 +158,9 @@ public class EvalRunner implements ApplicationRunner {
 
         run.complete(OffsetDateTime.now(), total, correct, ratio(correct, total),
                 sqlAnswers == 0 ? null : ratio(sqlExecuted, sqlAnswers), ratio(formatOk, total), avgElapsedMs);
+        long verified = results.stream().filter(result -> "VERIFIED".equals(result.getAnswerStatus())).count();
+        long rejected = results.stream().filter(result -> "REJECTED".equals(result.getAnswerStatus())).count();
+        run.recordAnswerVerifiedRate(verified + rejected == 0 ? null : ratio(verified, verified + rejected));
         evalRunRepository.save(run);
     }
 

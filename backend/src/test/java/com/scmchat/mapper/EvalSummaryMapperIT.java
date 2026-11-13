@@ -88,6 +88,44 @@ class EvalSummaryMapperIT {
                 new ErrorTypeCountRow("UNCLASSIFIED", 1));
     }
 
+    @Test
+    void hasNoRouteSummaryForARunWithoutRoutes() {
+        assertThat(mapper.routeSummaries(finished.getId())).isEmpty();
+        assertThat(mapper.runSummaries(MODEL).get(0).answerVerifiedRate()).isNull();
+    }
+
+    @Test
+    void summarizesCorrectAnswersByRouteAndReadsTheVerifiedRate() {
+        EvalRun routedRun = evalRunRepository.save(newRun());
+        saveRouted(routedRun, "Q01", "sql", true);
+        saveRouted(routedRun, "Q02", "tool", true);
+        saveRouted(routedRun, "Q03", "tool", false);
+        saveRouted(routedRun, "Q04", "refuse", true);
+        saveRouted(routedRun, "Q05", null, false);
+        routedRun.complete(OffsetDateTime.now(), 5, 3, new BigDecimal("0.6000"), null, new BigDecimal("1.0000"), 900);
+        routedRun.recordAnswerVerifiedRate(new BigDecimal("0.7500"));
+        evalRunRepository.save(routedRun);
+        entityManager.flush();
+
+        assertThat(mapper.routeSummaries(routedRun.getId())).containsExactly(
+                new RouteSummaryRow("tool", 2, 1),
+                new RouteSummaryRow("sql", 1, 1),
+                new RouteSummaryRow("refuse", 1, 1),
+                new RouteSummaryRow("none", 1, 0));
+        assertThat(mapper.runSummaries(MODEL)).filteredOn(row -> row.runId() == routedRun.getId())
+                .singleElement()
+                .satisfies(row -> assertThat(row.answerVerifiedRate()).isEqualByComparingTo("0.75"));
+    }
+
+    private void saveRouted(EvalRun run, String questionId, String route, boolean correct) {
+        EvalResult result = new EvalResult(run, questionId, "METRIC", "sql", route, null, correct, null, "OK",
+                1, 100, 10, 900, null);
+        if (route != null) {
+            result.recordRoute(route, null, null);
+        }
+        evalResultRepository.save(result);
+    }
+
     private static EvalRun newRun() {
         return new EvalRun("v0", MODEL, new BigDecimal("0.00"), 42, 1, "b".repeat(64), OffsetDateTime.now());
     }

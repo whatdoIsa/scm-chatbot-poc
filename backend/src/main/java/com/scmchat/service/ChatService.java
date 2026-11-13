@@ -1,5 +1,9 @@
 package com.scmchat.service;
 
+import com.scmchat.answer.AnswerStatus;
+import com.scmchat.answer.NumberVerifier;
+import com.scmchat.answer.Verification;
+import com.scmchat.answer.VerificationContext;
 import com.scmchat.config.ChatProperties;
 import com.scmchat.entity.ChatLog;
 import com.scmchat.executor.QueryResult;
@@ -27,6 +31,7 @@ import com.scmchat.tool.ToolValidation;
 import com.scmchat.validator.SqlValidator;
 import com.scmchat.validator.ValidationResult;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -38,7 +43,8 @@ import org.springframework.stereotype.Service;
  * LLM 호출 실패, 형식 오류, 실행 오류는 예외로 내보내지 않고 status로 바꾼다. 모든 요청은 chat_log에 한 행으로 남는다.
  * v2는 실행 전에 SQL을 검증하고, 실행 오류가 나면 오류 문구를 붙여 한 번만 다시 묻는다. 검증에서 거부된 SQL은 다시 묻지 않는다.
  * v3은 라우터가 경로를 먼저 고른다(PRD 10.2). 도구 경로는 인자를 검증한 뒤 고정 쿼리를 실행하고,
- * SQL 경로는 v1 프롬프트에 v2의 검증과 재시도를 적용한다.
+ * SQL 경로는 v1 프롬프트에 v2의 검증과 재시도를 적용한다. 조회에 성공하면 결과를 문장으로 옮기게 하고
+ * 문장의 숫자를 결과와 대조한다.
  */
 @Service
 public class ChatService {
@@ -55,12 +61,16 @@ public class ChatService {
     private final ReadOnlySqlExecutor executor;
     private final ToolArgsValidator toolArgsValidator;
     private final ToolExecutor toolExecutor;
+    private final NumberVerifier numberVerifier;
     private final ChatLogRepository chatLogRepository;
     private final int validatorLimit;
+    private final int answerMaxRows;
+    private final LocalDate asOfDate;
 
     public ChatService(PromptBuilder promptBuilder, LlmClient llmClient, LlmOutputParser parser,
             SqlValidator validator, ReadOnlySqlExecutor executor, ToolArgsValidator toolArgsValidator,
-            ToolExecutor toolExecutor, ChatLogRepository chatLogRepository, ChatProperties chatProperties) {
+            ToolExecutor toolExecutor, NumberVerifier numberVerifier, ChatLogRepository chatLogRepository,
+            ChatProperties chatProperties) {
         this.promptBuilder = promptBuilder;
         this.llmClient = llmClient;
         this.parser = parser;
@@ -68,21 +78,58 @@ public class ChatService {
         this.executor = executor;
         this.toolArgsValidator = toolArgsValidator;
         this.toolExecutor = toolExecutor;
+        this.numberVerifier = numberVerifier;
         this.chatLogRepository = chatLogRepository;
         this.validatorLimit = chatProperties.validatorLimit();
+        this.answerMaxRows = chatProperties.answerMaxRows();
+        this.asOfDate = chatProperties.asOfDate();
     }
 
     public ChatResult answer(String question, PromptVersion version) {
         long startedAt = System.nanoTime();
         Usage usage = new Usage();
         Routed routed;
+        Answer answer = Answer.NONE;
         if (version == PromptVersion.V3) {
             routed = routeAndAnswer(question, usage);
+            if (routed.outcome().result() != null) {
+                answer = writeAnswer(question, routed, usage);
+            }
         } else {
             boolean v2 = version == PromptVersion.V2;
             routed = Routed.unrouted(sqlStage(promptBuilder.build(version, question), v2, v2 ? 2 : 1, usage));
         }
-        return record(question, version, startedAt, usage, routed);
+        return record(question, version, startedAt, usage, routed, answer);
+    }
+
+    /**
+     * 조회 결과를 한국어 문장으로 옮기게 하고 숫자를 대조한다(PRD 10.5). 이 단계의 실패는 조회 결과를 버리지 않는다.
+     * 문장을 받지 못했으면 SKIPPED, 숫자가 결과와 맞지 않으면 REJECTED이고 어느 쪽이든 표는 그대로 응답한다.
+     */
+    private Answer writeAnswer(String question, Routed routed, Usage usage) {
+        QueryResult result = routed.outcome().result();
+        if (result.rows().isEmpty() || result.rows().size() > answerMaxRows || result.truncated()) {
+            return Answer.SKIPPED;
+        }
+        try {
+            String text = parser.parseAnswer(
+                    call(promptBuilder.buildAnswer(question, result), OutputFormat.ANSWER, usage).rawContent());
+            if (text == null) {
+                return Answer.SKIPPED;
+            }
+            Verification verification = numberVerifier.verify(text,
+                    new VerificationContext(question, result, routed.toolCall(), asOfDate));
+            if (!verification.ok()) {
+                log.info("answer rejected, numbers not found in the result: {}", verification.unverified());
+            }
+            return new Answer(text, verification.ok() ? AnswerStatus.VERIFIED : AnswerStatus.REJECTED);
+        } catch (FormatException e) {
+            return Answer.SKIPPED;
+        } catch (RuntimeException e) {
+            // 답변은 덧붙이는 단계다. 여기서 무엇이 실패하든 이미 얻은 조회 결과와 로그 한 행은 지킨다(PRD 10.2).
+            log.warn("answer step failed; the query result is returned without a sentence", e);
+            return Answer.SKIPPED;
+        }
     }
 
     private Routed routeAndAnswer(String question, Usage usage) {
@@ -100,11 +147,10 @@ public class ChatService {
             return Routed.unrouted(Outcome.failed(null, ChatStatus.FORMAT_ERROR, e.getMessage()));
         }
         return switch (parsed.route()) {
-            case CLARIFY -> new Routed(Route.CLARIFY, null, null, Outcome.message(Action.CLARIFY, parsed.message()));
-            case REFUSE -> new Routed(Route.REFUSE, null, null, Outcome.message(Action.REFUSE, parsed.message()));
+            case CLARIFY -> Routed.of(Route.CLARIFY, Outcome.message(Action.CLARIFY, parsed.message()));
+            case REFUSE -> Routed.of(Route.REFUSE, Outcome.message(Action.REFUSE, parsed.message()));
             // SQL 단계가 clarify나 refuse를 내면 그 action이 최종 결과다.
-            case SQL -> new Routed(Route.SQL, null, null,
-                    sqlStage(promptBuilder.build(PromptVersion.V1, question), true, 2, usage));
+            case SQL -> Routed.of(Route.SQL, sqlStage(promptBuilder.build(PromptVersion.V1, question), true, 2, usage));
             case TOOL -> runTool(parsed);
         };
     }
@@ -118,11 +164,11 @@ public class ChatService {
             validation = toolArgsValidator.validate(parsed.tool(), parsed.args());
         } catch (SqlExecutionException e) {
             // 품목·거점을 확인하는 조회가 실패했다. 인자가 틀린 것이 아니므로 거부가 아니라 실행 오류다.
-            return new Routed(Route.TOOL, rawName, parsed.args().toArgsMap(),
+            return new Routed(Route.TOOL, rawName, parsed.args().toArgsMap(), null,
                     Outcome.failed(Action.TOOL, ChatStatus.SQL_EXECUTION_ERROR, e.getMessage()));
         }
         if (!validation.ok()) {
-            return new Routed(Route.TOOL, rawName, parsed.args().toArgsMap(),
+            return new Routed(Route.TOOL, rawName, parsed.args().toArgsMap(), null,
                     Outcome.failed(Action.TOOL, ChatStatus.TOOL_REJECTED, validation.reason()));
         }
         ToolCall call = validation.call();
@@ -132,7 +178,7 @@ public class ChatService {
         } catch (SqlExecutionException e) {
             outcome = Outcome.failed(Action.TOOL, ChatStatus.SQL_EXECUTION_ERROR, e.getMessage());
         }
-        return new Routed(Route.TOOL, call.tool().value(), call.toArgsMap(), outcome);
+        return new Routed(Route.TOOL, call.tool().value(), call.toArgsMap(), call, outcome);
     }
 
     private static String abbreviate(String value, int maxLength) {
@@ -204,7 +250,8 @@ public class ChatService {
         }
     }
 
-    private ChatResult record(String question, PromptVersion version, long startedAt, Usage usage, Routed routed) {
+    private ChatResult record(String question, PromptVersion version, long startedAt, Usage usage, Routed routed,
+            Answer answer) {
         Outcome outcome = routed.outcome();
         int elapsedMs = (int) Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
         Integer rowCount = outcome.result() == null ? null : outcome.result().rows().size();
@@ -225,12 +272,15 @@ public class ChatService {
         if (routed.route() != null) {
             chatLog.recordRoute(routed.route().value(), routed.toolName(), ToolArgsJson.write(routed.toolArgs()));
         }
+        if (answer.status() != null) {
+            chatLog.recordAnswer(answer.text(), answer.status().name());
+        }
         ChatLog saved = chatLogRepository.save(chatLog);
 
         return new ChatResult(outcome.action(), outcome.status(), outcome.message(), outcome.sql(),
                 outcome.result(), version, llmClient.modelName(), usage.attempts, usage.promptTokens,
                 usage.completionTokens, elapsedMs, saved.getId(), routed.route(), routed.toolName(),
-                routed.toolArgs());
+                routed.toolArgs(), answer.text(), answer.status());
     }
 
     /** 질문 한 건에 쓴 LLM 호출 횟수와 토큰. 실패한 호출도 횟수에 든다. */
@@ -257,11 +307,23 @@ public class ChatService {
         }
     }
 
-    /** 라우터가 고른 경로와 그 결과. v0~v2와 라우터 호출이 실패한 v3은 route가 null이다. */
-    private record Routed(Route route, String toolName, Map<String, Object> toolArgs, Outcome outcome) {
+    /** 라우터가 고른 경로와 그 결과. v0~v2와 라우터 호출이 실패한 v3은 route가 null이다. toolCall은 검증을 통과한 호출이다. */
+    private record Routed(Route route, String toolName, Map<String, Object> toolArgs, ToolCall toolCall,
+            Outcome outcome) {
 
         static Routed unrouted(Outcome outcome) {
-            return new Routed(null, null, null, outcome);
+            return new Routed(null, null, null, null, outcome);
         }
+
+        static Routed of(Route route, Outcome outcome) {
+            return new Routed(route, null, null, null, outcome);
+        }
+    }
+
+    /** 답변 문장 원문과 후검증 결과. 조회 결과가 없으면(v0~v2 포함) 둘 다 null이다. */
+    private record Answer(String text, AnswerStatus status) {
+
+        static final Answer NONE = new Answer(null, null);
+        static final Answer SKIPPED = new Answer(null, AnswerStatus.SKIPPED);
     }
 }

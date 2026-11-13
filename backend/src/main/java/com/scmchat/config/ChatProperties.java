@@ -16,6 +16,7 @@ public record ChatProperties(
         @NotNull LocalDate dataStartDate,
         @Min(1) int maxRows,
         @Min(1) int validatorLimit,
+        @Min(1) int answerMaxRows,
         @NotBlank String promptsDir,
         @NotNull @Valid Llm llm) {
 

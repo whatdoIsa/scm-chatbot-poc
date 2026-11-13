@@ -19,12 +19,17 @@ public record EvalSummaryResponse(List<Run> runs) {
             BigDecimal formatOkRate,
             int avgElapsedMs,
             List<TypeAccuracy> byType,
-            List<ErrorTypeCount> errorTypes) {
+            List<ErrorTypeCount> errorTypes,
+            BigDecimal answerVerifiedRate,
+            List<RouteAccuracy> routes) {
     }
 
     public record TypeAccuracy(String type, int total, int correct, BigDecimal accuracy) {
     }
 
     public record ErrorTypeCount(String errorType, int count) {
+    }
+
+    public record RouteAccuracy(String route, int total, int correct) {
     }
 }

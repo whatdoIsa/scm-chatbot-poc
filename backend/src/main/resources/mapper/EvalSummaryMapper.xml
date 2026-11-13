@@ -16,6 +16,7 @@
       <arg column="sql_exec_success_rate" javaType="java.math.BigDecimal"/>
       <arg column="format_ok_rate" javaType="java.math.BigDecimal"/>
       <arg column="avg_elapsed_ms" javaType="_int"/>
+      <arg column="answer_verified_rate" javaType="java.math.BigDecimal"/>
     </constructor>
   </resultMap>
 
@@ -35,9 +36,18 @@
     </constructor>
   </resultMap>
 
+  <resultMap id="routeSummary" type="com.scmchat.mapper.RouteSummaryRow">
+    <constructor>
+      <arg column="route" javaType="String"/>
+      <arg column="total" javaType="_int"/>
+      <arg column="correct" javaType="_int"/>
+    </constructor>
+  </resultMap>
+
   <select id="runSummaries" resultMap="runSummary">
     SELECT id AS run_id, prompt_version, model, temperature, seed, repeat_no,
-           total, correct, accuracy, sql_exec_success_rate, format_ok_rate, avg_elapsed_ms
+           total, correct, accuracy, sql_exec_success_rate, format_ok_rate, avg_elapsed_ms,
+           answer_verified_rate
     FROM app.eval_run
     WHERE finished_at IS NOT NULL
     <if test="model != null">
@@ -63,5 +73,17 @@
     WHERE run_id = #{runId} AND NOT correct
     GROUP BY coalesce(error_type, 'UNCLASSIFIED')
     ORDER BY cnt DESC, error_type
+  </select>
+
+  <!-- 경로가 하나도 없는 실행(v0~v2)은 행을 내지 않는다. 라우터가 실패한 문항은 none으로 묶는다. -->
+  <select id="routeSummaries" resultMap="routeSummary">
+    SELECT coalesce(route, 'none') AS route,
+           count(*) AS total,
+           count(*) FILTER (WHERE correct) AS correct
+    FROM app.eval_result
+    WHERE run_id = #{runId}
+      AND EXISTS (SELECT 1 FROM app.eval_result routed WHERE routed.run_id = #{runId} AND routed.route IS NOT NULL)
+    GROUP BY coalesce(route, 'none')
+    ORDER BY array_position(ARRAY['tool', 'sql', 'clarify', 'refuse', 'none'], coalesce(route, 'none'))
   </select>
 </mapper>

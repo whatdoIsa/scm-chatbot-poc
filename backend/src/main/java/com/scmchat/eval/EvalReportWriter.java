@@ -17,11 +17,15 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
-/** 평가 1회의 결과를 콘솔과 eval/reports/run-{id}-{version}.md로 낸다. */
+/**
+ * 평가 1회의 결과를 콘솔과 eval/reports/run-{id}-{version}.md로 낸다.
+ * 경로가 기록된 실행(v3)에만 경로별 정확도와 답변 문장 후검증 절이 붙는다. v0~v2 리포트의 형식은 그대로다.
+ */
 @Component
 public class EvalReportWriter {
 
     static final String UNCLASSIFIED = "UNCLASSIFIED";
+    private static final List<String> ROUTE_ORDER = List.of("tool", "sql", "clarify", "refuse", "none");
 
     private final Path reportDir;
 
@@ -60,6 +64,12 @@ public class EvalReportWriter {
         row(out, "평균 응답 시간(ms)", run.getAvgElapsedMs());
         row(out, "평균 프롬프트 토큰", average(results.stream().mapToInt(EvalResult::getPromptTokens).sum(), results.size()));
         row(out, "평균 출력 토큰", average(results.stream().mapToInt(EvalResult::getCompletionTokens).sum(), results.size()));
+        boolean routed = results.stream().anyMatch(result -> result.getRoute() != null);
+        if (routed) {
+            row(out, "평균 LLM 호출 수", average(results.stream().mapToInt(EvalResult::getAttempts).sum(), results.size()));
+            row(out, "숫자 검증 통과율",
+                    run.getAnswerVerifiedRate() == null ? "해당 없음" : run.getAnswerVerifiedRate());
+        }
 
         out.append("\n## 유형별 정확도\n\n| 유형 | 문항 | 정답 | 정확도 |\n| --- | --- | --- | --- |\n");
         Map<String, List<EvalResult>> byType = results.stream()
@@ -69,6 +79,11 @@ public class EvalReportWriter {
             out.append("| ").append(type).append(" | ").append(typeResults.size()).append(" | ").append(correct)
                     .append(" | ").append(average(correct, typeResults.size())).append(" |\n");
         });
+
+        if (routed) {
+            appendRoutes(out, results);
+            appendAnswers(out, results, itemsById);
+        }
 
         List<EvalResult> wrong = results.stream().filter(result -> !result.isCorrect()).toList();
         out.append("\n## 오답 원인별 건수\n\n");
@@ -104,6 +119,52 @@ public class EvalReportWriter {
             }
         }
         return out.toString();
+    }
+
+    /** v3: 라우터가 고른 경로별 문항 수와 정답 수. 라우터 호출이 실패한 문항은 none이다. */
+    private static void appendRoutes(StringBuilder out, List<EvalResult> results) {
+        out.append("\n## 경로별 정확도\n\n| 경로 | 문항 | 정답 | 정확도 |\n| --- | --- | --- | --- |\n");
+        for (String route : ROUTE_ORDER) {
+            List<EvalResult> routeResults = results.stream().filter(result -> route.equals(routeOf(result))).toList();
+            if (routeResults.isEmpty()) {
+                continue;
+            }
+            long correct = routeResults.stream().filter(EvalResult::isCorrect).count();
+            out.append("| ").append(route).append(" | ").append(routeResults.size()).append(" | ").append(correct)
+                    .append(" | ").append(average(correct, routeResults.size())).append(" |\n");
+        }
+    }
+
+    /** v3: 답변 문장의 후검증 결과와, 숫자가 맞지 않아 응답에서 뺀 문장. */
+    private static void appendAnswers(StringBuilder out, List<EvalResult> results, Map<String, GoldenItem> itemsById) {
+        out.append("\n## 답변 문장 후검증\n\n| 결과 | 건수 |\n| --- | --- |\n");
+        for (String status : List.of("VERIFIED", "REJECTED", "SKIPPED")) {
+            long count = results.stream().filter(result -> status.equals(result.getAnswerStatus())).count();
+            out.append("| ").append(status).append(" | ").append(count).append(" |\n");
+        }
+        long none = results.stream().filter(result -> result.getAnswerStatus() == null).count();
+        out.append("| 조회 결과 없음 | ").append(none).append(" |\n");
+
+        List<EvalResult> rejected =
+                results.stream().filter(result -> "REJECTED".equals(result.getAnswerStatus())).toList();
+        out.append("\n### 거부된 문장\n\n");
+        if (rejected.isEmpty()) {
+            out.append("없음.\n");
+            return;
+        }
+        out.append("| id | 질문 | 문장 | 조회 정답 |\n| --- | --- | --- | --- |\n");
+        for (EvalResult result : rejected) {
+            GoldenItem item = itemsById.get(result.getQuestionId());
+            out.append("| ").append(result.getQuestionId())
+                    .append(" | ").append(cell(item == null ? null : item.question()))
+                    .append(" | ").append(cell(result.getAnswerText()))
+                    .append(" | ").append(result.isCorrect() ? "정답" : "오답")
+                    .append(" |\n");
+        }
+    }
+
+    private static String routeOf(EvalResult result) {
+        return result.getRoute() == null ? "none" : result.getRoute();
     }
 
     /** 도구로 답한 문항은 SQL이 없으므로 도구 호출을 대신 보여준다. */

@@ -7,7 +7,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 평가 실행별 요약에 유형별 정확도와 오답 원인별 건수를 붙인다. */
+/** 평가 실행별 요약에 유형별 정확도, 오답 원인별 건수, v3의 경로별 정답 수를 붙인다. */
 @Service
 public class EvalSummaryService {
 
@@ -31,8 +31,11 @@ public class EvalSummaryService {
         List<EvalSummaryResponse.ErrorTypeCount> errorTypes = mapper.errorTypeCounts(row.runId()).stream()
                 .map(error -> new EvalSummaryResponse.ErrorTypeCount(error.errorType(), error.count()))
                 .toList();
+        List<EvalSummaryResponse.RouteAccuracy> routes = mapper.routeSummaries(row.runId()).stream()
+                .map(route -> new EvalSummaryResponse.RouteAccuracy(route.route(), route.total(), route.correct()))
+                .toList();
         return new EvalSummaryResponse.Run(row.runId(), row.promptVersion(), row.model(), row.temperature(),
                 row.seed(), row.repeatNo(), row.total(), row.correct(), row.accuracy(), row.sqlExecSuccessRate(),
-                row.formatOkRate(), row.avgElapsedMs(), byType, errorTypes);
+                row.formatOkRate(), row.avgElapsedMs(), byType, errorTypes, row.answerVerifiedRate(), routes);
     }
 }

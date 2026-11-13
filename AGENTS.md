@@ -93,7 +93,7 @@ bash scripts/final_check.sh
 
 의존 관계: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10. T11(React)은 T5 이후 아무 때나 시작할 수 있고, 모델 측정 대기 시간에 진행한다. T11의 README·동결 부분은 마지막에 한다.
 
-T0~T11은 `poc-freeze`로, T12~T17(v3)은 `v3-freeze`로 끝났다. v4는 T18 → T19 → T20 → T21 순서다(PRD 11장, API_SPEC 9장).
+T0~T11은 `poc-freeze`로, T12~T17(v3)은 `v3-freeze`로, T18~T21(v4)은 `v4-freeze`로 끝났다. v5(제안, 사용자 확인 전)는 T22 → T23 → T24 순서다(PRD 12장, API_SPEC 10장).
 
 ### T0. 환경 점검과 저장소 골격
 
@@ -532,6 +532,35 @@ cd .. && bash scripts/final_check.sh
 git tag v4-freeze
 ```
 완료: v4 실행 4개와 새 세트의 v1~v3 실행 3개 저장, v4 실행의 미분류 오답 0건, `final_check.sh` exit 0, `v4-freeze` 태그. 여기까지가 카테고리 8의 PR이다.
+
+### T22. v5 도구 경로 점검
+
+참조: PRD 12.2, 12.3, API_SPEC 10장
+
+작업
+- `PromptVersion.V5`, `ToolRouteGuard`, `ChatService`의 V5 분기(인자 검증 실패·점검 불일치는 SQL 단계, 정렬 방향 교정)
+- 단위 테스트 `ToolRouteGuardTest`(통과, SQL 단계로 보낼 것, 정렬 방향 교정, 그대로 둘 것), `ChatServiceTest`(V5 세 경로, 같은 호출을 V4는 그대로 실행)
+- 라우터 개발 세트 2(`router_dev2_v5.json`)는 규칙을 고정하기 전에 쓰고, 고정할 때까지 모델 출력을 보지 않는다
+- CI의 oracle 점검에 v5 추가
+
+검증
+```bash
+set -a; . ./.env; set +a
+cd backend && ./gradlew test integrationTest
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v4,v5 --eval.report-dir=build/eval-reports'
+```
+완료: 테스트 통과, oracle v4·v5 `30 / 30`.
+
+### T23. v5 측정과 문서
+
+작업
+- v5를 네 세트로 1회씩 측정, 오답 분류(미분류 0건), v4와 문항별 짝 비교
+- 라우터 개발 세트 2로 v4·v5의 경로 정확도를 한 번 잰다
+- README에 v5 결과와 한계(PRD 12.5)
+
+완료: v5 실행 4개 저장, 미분류 0건, `final_check.sh` exit 0.
+
+### T24. (사용자 확인 뒤) 새 평가 세트로 v4·v5 비교, `v5-freeze`
 
 ## 9. 일정과 T 매핑
 

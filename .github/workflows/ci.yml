@@ -55,8 +55,8 @@ jobs:
         run: |
           set -o pipefail
           set -a; . ../.env; set +a
-          ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v0,v1,v2,v3,v4 --eval.report-dir=build/eval-reports' | tee oracle.log
-          test "$(grep -c '^| 정확도 | 30 / 30 = 1.0000 |' oracle.log)" = "5"
+          ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v0,v1,v2,v3,v4,v5 --eval.report-dir=build/eval-reports' | tee oracle.log
+          test "$(grep -c '^| 정확도 | 30 / 30 = 1.0000 |' oracle.log)" = "6"
           ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v2,v3,v4 --eval.golden-path=../eval/golden_set_deep.json --eval.golden-hash-path=../eval/golden_set_deep.sha256 --eval.report-dir=build/eval-reports' | tee oracle-deep.log
           test "$(grep -c '^| 정확도 | 20 / 20 = 1.0000 |' oracle-deep.log)" = "3"
           ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v2,v3,v4 --eval.golden-path=../eval/golden_set_v3.json --eval.golden-hash-path=../eval/golden_set_v3.sha256 --eval.report-dir=build/eval-reports' | tee oracle-holdout.log

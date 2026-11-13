@@ -81,7 +81,8 @@ public class PromptBuilder {
         }
         RouterFiles files = switch (version) {
             case V3 -> new RouterFiles("v3_router", "tools.yml", "router_fewshot.json");
-            case V4 -> new RouterFiles("v4_router", "tools_v4.yml", "router_fewshot_v4.json");
+            // v5는 v4의 라우터를 바꾸지 않는다. 달라지는 것은 서버의 도구 경로 점검뿐이다.
+            case V4, V5 -> new RouterFiles("v4_router", "tools_v4.yml", "router_fewshot_v4.json");
             default -> throw new IllegalArgumentException(version.value() + " has no router");
         };
         Map<String, String> values = new LinkedHashMap<>();

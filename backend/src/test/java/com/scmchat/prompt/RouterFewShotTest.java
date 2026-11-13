@@ -180,8 +180,15 @@ class RouterFewShotTest {
 
         com.fasterxml.jackson.databind.JsonNode dev =
                 mapper.readTree(Path.of("src/test/resources/router_dev_v4.json").toFile());
+        com.fasterxml.jackson.databind.JsonNode dev2 =
+                mapper.readTree(Path.of("src/test/resources/router_dev2_v5.json").toFile());
         assertThat(dev).hasSize(41);
-        for (com.fasterxml.jackson.databind.JsonNode item : dev) {
+        assertThat(dev2).hasSize(36);
+        java.util.List<com.fasterxml.jackson.databind.JsonNode> all = new java.util.ArrayList<>();
+        dev.forEach(all::add);
+        dev2.forEach(all::add);
+        assertThat(all.stream().map(item -> normalize(item.get("question").asText())).distinct()).hasSize(77);
+        for (com.fasterxml.jackson.databind.JsonNode item : all) {
             String question = item.get("question").asText();
             assertThat(seen).as(question).doesNotContain(normalize(question));
             if (!"tool".equals(item.get("route").asText())) {

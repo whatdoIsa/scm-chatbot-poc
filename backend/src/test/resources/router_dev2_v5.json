@@ -1,0 +1,214 @@
+[
+ {
+  "question": "대구센터의 결품률은 얼마나 돼?",
+  "route": "tool",
+  "tool": "stockout_rate",
+  "args": {
+   "location": "대구센터",
+   "output": "value"
+  }
+ },
+ {
+  "question": "SKU-38 재고보유일수",
+  "route": "tool",
+  "tool": "days_of_supply",
+  "args": {
+   "sku": "SKU-038",
+   "output": "value"
+  }
+ },
+ {
+  "question": "최근 30일 기준 SKU-002의 하루 평균 판매량",
+  "route": "tool",
+  "tool": "avg_daily_sales",
+  "args": {
+   "sku": "SKU-002",
+   "days": 30,
+   "output": "value"
+  }
+ },
+ {
+  "question": "음료 품목 중 결품률 상위 5개",
+  "route": "tool",
+  "tool": "stockout_rate",
+  "args": {
+   "category": "음료",
+   "output": "ranking",
+   "top_n": 5,
+   "order": "desc"
+  }
+ },
+ {
+  "question": "예측 정확도가 제일 높은 품목 3개 알려줘",
+  "route": "tool",
+  "tool": "forecast_accuracy",
+  "args": {
+   "output": "ranking",
+   "top_n": 3,
+   "order": "desc"
+  }
+ },
+ {
+  "question": "재고일수가 제일 짧은 품목은?",
+  "route": "tool",
+  "tool": "days_of_supply",
+  "args": {
+   "output": "ranking",
+   "top_n": 1,
+   "order": "asc"
+  }
+ },
+ {
+  "question": "호남권에서 재주문 필요한 SKU-거점 몇 개야?",
+  "route": "tool",
+  "tool": "reorder_needed",
+  "args": {
+   "region": "호남권",
+   "output": "count"
+  }
+ },
+ {
+  "question": "A등급 안전재고 미달 목록",
+  "route": "tool",
+  "tool": "below_safety_stock",
+  "args": {
+   "abc_class": "A",
+   "output": "list"
+  }
+ },
+ {
+  "question": "충청권 최근 7일 일평균 판매량은?",
+  "route": "tool",
+  "tool": "avg_daily_sales",
+  "args": {
+   "region": "충청권",
+   "days": 7,
+   "output": "value"
+  }
+ },
+ {
+  "question": "지난달 개인위생 카테고리 결품률",
+  "route": "tool",
+  "tool": "stockout_rate",
+  "args": {
+   "category": "개인위생",
+   "start_date": "2026-10-01",
+   "end_date": "2026-10-31",
+   "output": "value"
+  }
+ },
+ {
+  "question": "부산센터의 예측 정확도",
+  "route": "tool",
+  "tool": "forecast_accuracy",
+  "args": {
+   "location": "부산센터",
+   "output": "value"
+  }
+ },
+ {
+  "question": "C등급 품목의 재고보유일수",
+  "route": "tool",
+  "tool": "days_of_supply",
+  "args": {
+   "abc_class": "C",
+   "output": "value"
+  }
+ },
+ {
+  "question": "SKU-031 서울센터 재주문점 얼마야?",
+  "route": "sql"
+ },
+ {
+  "question": "광주센터 SKU-006 안전재고 수량은?",
+  "route": "sql"
+ },
+ {
+  "question": "SKU-013 다음 주가 아닌 이번 주 예측량은?",
+  "route": "sql"
+ },
+ {
+  "question": "최근 14일 SKU-020 출고량 합계",
+  "route": "sql"
+ },
+ {
+  "question": "그저께 대전센터 판매량",
+  "route": "sql"
+ },
+ {
+  "question": "지난주 음료 출고량은?",
+  "route": "sql"
+ },
+ {
+  "question": "예측 정확도가 가장 낮은 센터는 어디야?",
+  "route": "sql"
+ },
+ {
+  "question": "결품률이 높은 권역 순으로 보여줘",
+  "route": "sql"
+ },
+ {
+  "question": "재고가 0인 SKU-거점은 몇 개야?",
+  "route": "sql"
+ },
+ {
+  "question": "리드타임이 10일 이상인 SKU-거점 수",
+  "route": "sql"
+ },
+ {
+  "question": "재고보유일수가 20일 넘는 품목 목록",
+  "route": "sql"
+ },
+ {
+  "question": "10월 첫째 주 일평균 판매량은?",
+  "route": "sql"
+ },
+ {
+  "question": "SKU-047의 거점별 입고 예정 수량",
+  "route": "sql"
+ },
+ {
+  "question": "카테고리별 품목 수",
+  "route": "sql"
+ },
+ {
+  "question": "어제 판매가 가장 많았던 거점은?",
+  "route": "sql"
+ },
+ {
+  "question": "이번 주와 지난주 판매량 차이는?",
+  "route": "sql"
+ },
+ {
+  "question": "그 센터 결품 상황은 어때?",
+  "route": "clarify"
+ },
+ {
+  "question": "판매 좀 봐줘",
+  "route": "clarify"
+ },
+ {
+  "question": "아까 얘기한 품목 순위 다시",
+  "route": "clarify"
+ },
+ {
+  "question": "재고 괜찮아?",
+  "route": "clarify"
+ },
+ {
+  "question": "SKU-030 재고 100개 추가해줘",
+  "route": "refuse"
+ },
+ {
+  "question": "올해 1월 결품률은?",
+  "route": "refuse"
+ },
+ {
+  "question": "SKU-019 마진율은?",
+  "route": "refuse"
+ },
+ {
+  "question": "내년 판매 전망 알려줘",
+  "route": "refuse"
+ }
+]

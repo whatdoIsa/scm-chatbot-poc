@@ -508,7 +508,7 @@ class ChatServiceTest {
         assertThat(result.result()).isEqualTo(rows);
         assertThat(result.toolName()).isEqualTo("avg_daily_sales");
         assertThat(result.toolArgs()).containsEntry("days", 7)
-                .containsEntry("guard", "question does not name the metric of avg_daily_sales");
+                .containsEntry("guard", "question does not name the metric of the tool");
         assertThat(scripted.formats).containsExactly(OutputFormat.ROUTE_V4, OutputFormat.ACTION, OutputFormat.ANSWER);
         assertThat(scripted.requests.get(1))
                 .isEqualTo(new PromptBuilder(properties()).build(PromptVersion.V1, question));
@@ -638,7 +638,7 @@ class ChatServiceTest {
         ChatService stubbed = new ChatService(new PromptBuilder(properties),
                 new ScriptedLlmClient(new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0)), new LlmOutputParser(),
                 new SqlValidator(properties), executor, new ToolArgsValidator(databaseDown, properties), toolExecutor,
-                new com.scmchat.tool.ToolRouteGuard(), new NumberVerifier(), chatLogRepository, properties);
+                new com.scmchat.tool.ToolRouteGuard(DIMENSIONS), new NumberVerifier(), chatLogRepository, properties);
 
         ChatResult result = stubbed.answer(QUESTION, PromptVersion.V3);
 
@@ -958,7 +958,7 @@ class ChatServiceTest {
         ChatProperties properties = properties();
         return new ChatService(new PromptBuilder(properties), llmClient, new LlmOutputParser(),
                 new SqlValidator(properties), executor, new ToolArgsValidator(DIMENSIONS, properties), toolExecutor,
-                new com.scmchat.tool.ToolRouteGuard(), new NumberVerifier(), chatLogRepository, properties);
+                new com.scmchat.tool.ToolRouteGuard(DIMENSIONS), new NumberVerifier(), chatLogRepository, properties);
     }
 
     /** 정해 둔 응답을 순서대로 돌려주고 받은 메시지를 기록한다. */

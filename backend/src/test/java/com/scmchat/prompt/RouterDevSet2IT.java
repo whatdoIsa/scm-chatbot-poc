@@ -30,7 +30,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 /**
  * 라우터 개발 세트 2(36문항)로 v4와 v5의 경로를 비교한다. v5는 v4와 같은 라우터 출력에 서버 점검(ToolRouteGuard)을 더한 것이라
- * 라우터를 한 번만 부르고 두 버전의 경로를 함께 계산한다. 이 세트는 점검 규칙을 쓰기 전에 썼고 규칙을 고정할 때까지 결과를 보지 않았다.
+ * 라우터를 한 번만 부르고 두 버전의 경로를 함께 계산한다(v5의 판단은 ChatService.runGuardedTool과 같은 순서로 여기서 다시 계산한다).
+ * 이 세트는 점검 규칙보다 먼저 썼지만 규칙을 쓰는 동안 질문은 보였다. 처음 규칙을 고정할 때까지 모델 출력만 보지 않았다(PRD 12.4).
  * SQL 단계의 결과는 채점하지 않는다. 경로(그리고 도구 경로라면 도구와 인자)만 본다. 결과는 build/router-dev/에 쓴다.
  */
 @Tag("integration")
@@ -68,6 +69,7 @@ class RouterDevSet2IT {
             });
         }
         int v4Exact = 0;
+        List<String> regressions = new java.util.ArrayList<>();
         int v5Exact = 0;
         StringBuilder out = new StringBuilder();
         for (DevItem item : items) {
@@ -87,6 +89,9 @@ class RouterDevSet2IT {
             boolean ok5 = exact(item, v5);
             v4Exact += ok4 ? 1 : 0;
             v5Exact += ok5 ? 1 : 0;
+            if (ok4 && !ok5) {
+                regressions.add(item.question());
+            }
             out.append(ok4 ? "v4 OK   " : "v4 MISS ").append(ok5 ? "v5 OK   " : "v5 MISS ")
                     .append(item.question()).append(" | expected ").append(item.route()).append(' ')
                     .append(Objects.toString(item.tool(), "")).append(' ').append(Objects.toString(item.args(), ""))
@@ -98,6 +103,9 @@ class RouterDevSet2IT {
         Files.writeString(dir.resolve("dev2.txt"), header + out, StandardCharsets.UTF_8);
         System.out.print(header + out);
 
+        // 점검은 도구 호출을 SQL 단계로 넘기거나 정렬 방향만 바꾸므로, 기대가 sql·clarify·refuse인 문항에서는 v5가 v4보다
+        // 나빠질 수 없다. 의미 있는 확인은 v4가 맞힌 도구 문항을 v5가 놓치지 않는지다.
+        assertThat(regressions).as("v4가 맞히고 v5가 틀린 문항").isEmpty();
         assertThat(v5Exact).isGreaterThanOrEqualTo(v4Exact);
     }
 

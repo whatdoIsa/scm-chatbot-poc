@@ -13,6 +13,10 @@ public interface MetricToolMapper {
 
     List<String> locationNames();
 
+    List<String> regions();
+
+    List<String> categories();
+
     boolean skuExists(@Param("sku") String sku);
 
     List<Map<String, Object>> avgDailySalesValue(ToolQuery query);

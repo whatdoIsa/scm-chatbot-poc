@@ -55,7 +55,7 @@ public class LlmOutputParser {
         }
         RawToolArgs args = new RawToolArgs(text(root, "sku"), text(root, "location"), integer(root, "days"),
                 text(root, "start_date"), text(root, "end_date"), text(root, "output"), integer(root, "top_n"),
-                text(root, "order"));
+                text(root, "order"), text(root, "region"), text(root, "category"), text(root, "abc_class"));
         return new ParsedRoute(route, text(root, "tool"), args, message);
     }
 

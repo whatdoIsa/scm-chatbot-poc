@@ -5,10 +5,19 @@
   <!--
     지표 정의는 PRD 5.3, 단위는 PRD 5.2를 따른다. 거점이 없으면 전 거점 합산, 있으면 그 거점만 본다.
     값은 모두 #{}로 바인딩한다. 정렬 방향은 검증된 boolean으로 고른다.
+    권역, 카테고리, ABC 등급 조건(v4)은 EXISTS로 건다. 조인을 늘리지 않아 행 수와 기존 결과가 달라지지 않는다.
   -->
 
   <select id="locationNames" resultType="string">
     SELECT name FROM scm.location ORDER BY location_id
+  </select>
+
+  <select id="regions" resultType="string">
+    SELECT DISTINCT region FROM scm.location ORDER BY region
+  </select>
+
+  <select id="categories" resultType="string">
+    SELECT DISTINCT category FROM scm.product ORDER BY category
   </select>
 
   <select id="skuExists" resultType="boolean">
@@ -23,6 +32,9 @@
     WHERE s.sale_date BETWEEN #{fromDate} AND #{toDate}
     <if test="sku != null">AND s.sku = #{sku}</if>
     <if test="location != null">AND l.name = #{location}</if>
+    <if test="region != null">AND EXISTS (SELECT 1 FROM scm.location fl WHERE fl.location_id = s.location_id AND fl.region = #{region})</if>
+    <if test="category != null">AND EXISTS (SELECT 1 FROM scm.product fc WHERE fc.sku = s.sku AND fc.category = #{category})</if>
+    <if test="abcClass != null">AND EXISTS (SELECT 1 FROM scm.product fa WHERE fa.sku = s.sku AND fa.abc_class = #{abcClass})</if>
   </select>
 
   <select id="avgDailySalesRanking" resultType="java.util.LinkedHashMap">
@@ -31,6 +43,9 @@
     <if test="location != null">JOIN scm.location l ON l.location_id = s.location_id</if>
     WHERE s.sale_date BETWEEN #{fromDate} AND #{toDate}
     <if test="location != null">AND l.name = #{location}</if>
+    <if test="region != null">AND EXISTS (SELECT 1 FROM scm.location fl WHERE fl.location_id = s.location_id AND fl.region = #{region})</if>
+    <if test="category != null">AND EXISTS (SELECT 1 FROM scm.product fc WHERE fc.sku = s.sku AND fc.category = #{category})</if>
+    <if test="abcClass != null">AND EXISTS (SELECT 1 FROM scm.product fa WHERE fa.sku = s.sku AND fa.abc_class = #{abcClass})</if>
     GROUP BY s.sku
     ORDER BY avg_daily_qty
     <choose><when test="ascending">ASC</when><otherwise>DESC</otherwise></choose>, s.sku
@@ -47,6 +62,9 @@
       WHERE i.snap_date = #{asOfDate}
       <if test="sku != null">AND i.sku = #{sku}</if>
       <if test="location != null">AND l.name = #{location}</if>
+      <if test="region != null">AND EXISTS (SELECT 1 FROM scm.location fl WHERE fl.location_id = i.location_id AND fl.region = #{region})</if>
+      <if test="category != null">AND EXISTS (SELECT 1 FROM scm.product fc WHERE fc.sku = i.sku AND fc.category = #{category})</if>
+      <if test="abcClass != null">AND EXISTS (SELECT 1 FROM scm.product fa WHERE fa.sku = i.sku AND fa.abc_class = #{abcClass})</if>
     ) oh
     CROSS JOIN (
       SELECT SUM(s.qty) AS qty
@@ -55,6 +73,9 @@
       WHERE s.sale_date BETWEEN #{fromDate} AND #{toDate}
       <if test="sku != null">AND s.sku = #{sku}</if>
       <if test="location != null">AND l.name = #{location}</if>
+      <if test="region != null">AND EXISTS (SELECT 1 FROM scm.location fl WHERE fl.location_id = s.location_id AND fl.region = #{region})</if>
+      <if test="category != null">AND EXISTS (SELECT 1 FROM scm.product fc WHERE fc.sku = s.sku AND fc.category = #{category})</if>
+      <if test="abcClass != null">AND EXISTS (SELECT 1 FROM scm.product fa WHERE fa.sku = s.sku AND fa.abc_class = #{abcClass})</if>
     ) d
   </select>
 
@@ -66,6 +87,9 @@
       <if test="location != null">JOIN scm.location l ON l.location_id = i.location_id</if>
       WHERE i.snap_date = #{asOfDate}
       <if test="location != null">AND l.name = #{location}</if>
+      <if test="region != null">AND EXISTS (SELECT 1 FROM scm.location fl WHERE fl.location_id = i.location_id AND fl.region = #{region})</if>
+      <if test="category != null">AND EXISTS (SELECT 1 FROM scm.product fc WHERE fc.sku = i.sku AND fc.category = #{category})</if>
+      <if test="abcClass != null">AND EXISTS (SELECT 1 FROM scm.product fa WHERE fa.sku = i.sku AND fa.abc_class = #{abcClass})</if>
       GROUP BY i.sku
     ) oh
     JOIN (
@@ -74,6 +98,9 @@
       <if test="location != null">JOIN scm.location l ON l.location_id = s.location_id</if>
       WHERE s.sale_date BETWEEN #{fromDate} AND #{toDate}
       <if test="location != null">AND l.name = #{location}</if>
+      <if test="region != null">AND EXISTS (SELECT 1 FROM scm.location fl WHERE fl.location_id = s.location_id AND fl.region = #{region})</if>
+      <if test="category != null">AND EXISTS (SELECT 1 FROM scm.product fc WHERE fc.sku = s.sku AND fc.category = #{category})</if>
+      <if test="abcClass != null">AND EXISTS (SELECT 1 FROM scm.product fa WHERE fa.sku = s.sku AND fa.abc_class = #{abcClass})</if>
       GROUP BY s.sku
     ) d ON d.sku = oh.sku
     WHERE d.qty > 0
@@ -90,6 +117,9 @@
     WHERE i.snap_date BETWEEN #{fromDate} AND #{toDate}
     <if test="sku != null">AND i.sku = #{sku}</if>
     <if test="location != null">AND l.name = #{location}</if>
+    <if test="region != null">AND EXISTS (SELECT 1 FROM scm.location fl WHERE fl.location_id = i.location_id AND fl.region = #{region})</if>
+    <if test="category != null">AND EXISTS (SELECT 1 FROM scm.product fc WHERE fc.sku = i.sku AND fc.category = #{category})</if>
+    <if test="abcClass != null">AND EXISTS (SELECT 1 FROM scm.product fa WHERE fa.sku = i.sku AND fa.abc_class = #{abcClass})</if>
   </select>
 
   <select id="stockoutRateRanking" resultType="java.util.LinkedHashMap">
@@ -98,6 +128,9 @@
     <if test="location != null">JOIN scm.location l ON l.location_id = i.location_id</if>
     WHERE i.snap_date BETWEEN #{fromDate} AND #{toDate}
     <if test="location != null">AND l.name = #{location}</if>
+    <if test="region != null">AND EXISTS (SELECT 1 FROM scm.location fl WHERE fl.location_id = i.location_id AND fl.region = #{region})</if>
+    <if test="category != null">AND EXISTS (SELECT 1 FROM scm.product fc WHERE fc.sku = i.sku AND fc.category = #{category})</if>
+    <if test="abcClass != null">AND EXISTS (SELECT 1 FROM scm.product fa WHERE fa.sku = i.sku AND fa.abc_class = #{abcClass})</if>
     GROUP BY i.sku
     ORDER BY stockout_rate
     <choose><when test="ascending">ASC</when><otherwise>DESC</otherwise></choose>, i.sku
@@ -115,6 +148,9 @@
     <where>
       <if test="sku != null">f.sku = #{sku}</if>
       <if test="location != null">AND l.name = #{location}</if>
+      <if test="region != null">AND EXISTS (SELECT 1 FROM scm.location fl WHERE fl.location_id = f.location_id AND fl.region = #{region})</if>
+      <if test="category != null">AND EXISTS (SELECT 1 FROM scm.product fc WHERE fc.sku = f.sku AND fc.category = #{category})</if>
+      <if test="abcClass != null">AND EXISTS (SELECT 1 FROM scm.product fa WHERE fa.sku = f.sku AND fa.abc_class = #{abcClass})</if>
     </where>
     GROUP BY f.sku, f.location_id, f.week_start, f.forecast_qty
   </sql>
@@ -145,6 +181,9 @@
       AND i.on_hand &lt; p.safety_stock
     <if test="sku != null">AND i.sku = #{sku}</if>
     <if test="location != null">AND l.name = #{location}</if>
+    <if test="region != null">AND EXISTS (SELECT 1 FROM scm.location fl WHERE fl.location_id = i.location_id AND fl.region = #{region})</if>
+    <if test="category != null">AND EXISTS (SELECT 1 FROM scm.product fc WHERE fc.sku = i.sku AND fc.category = #{category})</if>
+    <if test="abcClass != null">AND EXISTS (SELECT 1 FROM scm.product fa WHERE fa.sku = i.sku AND fa.abc_class = #{abcClass})</if>
   </sql>
 
   <select id="belowSafetyStockList" resultType="java.util.LinkedHashMap">
@@ -168,6 +207,9 @@
       AND i.on_hand + i.in_transit &lt;= p.reorder_point
     <if test="sku != null">AND i.sku = #{sku}</if>
     <if test="location != null">AND l.name = #{location}</if>
+    <if test="region != null">AND EXISTS (SELECT 1 FROM scm.location fl WHERE fl.location_id = i.location_id AND fl.region = #{region})</if>
+    <if test="category != null">AND EXISTS (SELECT 1 FROM scm.product fc WHERE fc.sku = i.sku AND fc.category = #{category})</if>
+    <if test="abcClass != null">AND EXISTS (SELECT 1 FROM scm.product fa WHERE fa.sku = i.sku AND fa.abc_class = #{abcClass})</if>
   </sql>
 
   <select id="reorderNeededList" resultType="java.util.LinkedHashMap">

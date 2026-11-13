@@ -60,6 +60,16 @@ class ChatServiceTest {
         public List<String> locationNames() {
             return List.of("서울센터", "부산센터");
         }
+
+        @Override
+        public List<String> regions() {
+            return List.of("수도권", "영남권", "충청권", "호남권");
+        }
+
+        @Override
+        public List<String> categories() {
+            return List.of("스낵", "음료", "개인위생", "냉동식품", "생활용품");
+        }
     };
 
     private final FakeLlmClient fakeLlm = new FakeLlmClient();
@@ -456,6 +466,16 @@ class ChatServiceTest {
 
             @Override
             public List<String> locationNames() {
+                throw new SqlExecutionException("FATAL: the database system is shutting down", "57P01", null);
+            }
+
+            @Override
+            public List<String> regions() {
+                throw new SqlExecutionException("FATAL: the database system is shutting down", "57P01", null);
+            }
+
+            @Override
+            public List<String> categories() {
                 throw new SqlExecutionException("FATAL: the database system is shutting down", "57P01", null);
             }
         };

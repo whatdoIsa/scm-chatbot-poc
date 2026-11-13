@@ -32,6 +32,16 @@ class RouterFewShotTest {
         public List<String> locationNames() {
             return List.of("서울센터", "부산센터", "대전센터", "광주센터", "대구센터");
         }
+
+        @Override
+        public List<String> regions() {
+            return List.of("수도권", "영남권", "충청권", "호남권");
+        }
+
+        @Override
+        public List<String> categories() {
+            return List.of("스낵", "음료", "개인위생", "냉동식품", "생활용품");
+        }
     };
 
     private final LlmOutputParser parser = new LlmOutputParser();

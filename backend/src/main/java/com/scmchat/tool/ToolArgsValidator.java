@@ -6,6 +6,7 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Component;
 public class ToolArgsValidator {
 
     static final int TOP_N_MAX = 50;
+    private static final List<String> ABC_CLASSES = List.of("A", "B", "C");
     private static final Pattern SKU = Pattern.compile("(?i)SKU-(\\d{1,3})");
 
     private final Dimensions dimensions;
@@ -48,6 +50,15 @@ public class ToolArgsValidator {
         ToolOutput output = output(tool, raw.output());
         String sku = sku(raw.sku());
         String location = location(raw.location());
+        String region = oneOf("region", raw.region(), dimensions::regions);
+        String category = oneOf("category", raw.category(), dimensions::categories);
+        String abcClass = oneOf("abc_class", raw.abcClass(), () -> ABC_CLASSES);
+        if (location != null && region != null) {
+            throw new Rejection("location and region cannot be given together: " + location + ", " + region);
+        }
+        if (sku != null && (category != null || abcClass != null)) {
+            throw new Rejection("sku cannot be combined with category or abc_class: " + sku);
+        }
 
         Integer topN = null;
         Boolean ascending = null;
@@ -90,7 +101,8 @@ public class ToolArgsValidator {
                 }
             }
         }
-        return new ToolCall(tool, output, sku, location, days, startDate, endDate, topN, ascending);
+        return new ToolCall(tool, output, sku, location, days, startDate, endDate, topN, ascending, region, category,
+                abcClass);
     }
 
     private static ToolOutput output(ToolName tool, String raw) {
@@ -129,6 +141,19 @@ public class ToolArgsValidator {
         List<String> names = dimensions.locationNames();
         if (!names.contains(value)) {
             throw new Rejection("unknown location: " + value + " (known: " + String.join(", ", names) + ")");
+        }
+        return value;
+    }
+
+    /** 비어 있으면 null, 아니면 차원 테이블에 있는 값이어야 한다. */
+    private static String oneOf(String field, String raw, Supplier<List<String>> allowed) {
+        String value = blankToNull(raw);
+        if (value == null) {
+            return null;
+        }
+        List<String> values = allowed.get();
+        if (!values.contains(value)) {
+            throw new Rejection("unknown " + field + ": " + value + " (known: " + String.join(", ", values) + ")");
         }
         return value;
     }

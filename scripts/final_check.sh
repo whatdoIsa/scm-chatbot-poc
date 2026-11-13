@@ -24,7 +24,7 @@ for secret in "$POSTGRES_PASSWORD" "$SCM_RO_PASSWORD"; do
 done
 
 step "골든셋 동결 해시"
-sha256sum -c eval/golden_set.sha256 eval/golden_set_deep.sha256 eval/golden_set_v3.sha256
+sha256sum -c eval/golden_set.sha256 eval/golden_set_deep.sha256 eval/golden_set_v3.sha256 eval/golden_set_v4.sha256
 
 step "평가 결과를 내보낸 뒤 DB 초기화"
 bash scripts/eval_dump.sh

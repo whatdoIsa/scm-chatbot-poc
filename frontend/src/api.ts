@@ -1,5 +1,19 @@
-export type Action = 'sql' | 'clarify' | 'refuse'
-export type ChatStatus = 'OK' | 'SQL_REJECTED' | 'SQL_EXECUTION_ERROR' | 'FORMAT_ERROR' | 'LLM_UNAVAILABLE'
+export type Action = 'sql' | 'clarify' | 'refuse' | 'tool'
+export type ChatStatus =
+  | 'OK'
+  | 'SQL_REJECTED'
+  | 'SQL_EXECUTION_ERROR'
+  | 'TOOL_REJECTED'
+  | 'FORMAT_ERROR'
+  | 'LLM_UNAVAILABLE'
+export type Route = 'tool' | 'sql' | 'clarify' | 'refuse'
+export type AnswerStatus = 'VERIFIED' | 'REJECTED' | 'SKIPPED'
+
+/** v3 도구 경로의 근거. 검증에 실패한 호출은 name이 없을 수 있다. */
+export interface ToolInfo {
+  name: string | null
+  args: Record<string, string | number> | null
+}
 export type Cell = string | number | boolean | null
 
 export interface ChatResponse {
@@ -17,6 +31,11 @@ export interface ChatResponse {
   attempts: number
   elapsedMs: number
   chatLogId: number
+  // 아래 넷은 v3에서만 채워진다. answer는 숫자 후검증을 통과한 문장만 온다.
+  route: Route | null
+  tool: ToolInfo | null
+  answer: string | null
+  answerStatus: AnswerStatus | null
 }
 
 export interface Meta {

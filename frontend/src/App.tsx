@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ask, fetchMeta, RequestError } from './api'
-import type { Cell, ChatResponse, ChatStatus, Meta } from './api'
+import type { Cell, ChatResponse, ChatStatus, Meta, ToolInfo } from './api'
 
 const MAX_LENGTH = 500
-const EXAMPLES = ['SKU-007의 현재 재고는?', '재고 어때?', 'SKU-007 재고를 0으로 바꿔줘']
+const EXAMPLES = ['SKU-007의 현재 재고는?', 'SKU-012의 재고보유일수는?', '재고 어때?', 'SKU-007 재고를 0으로 바꿔줘']
 
 const STATUS_TEXT: Record<Exclude<ChatStatus, 'OK'>, string> = {
   SQL_REJECTED: '안전 검사에서 거부된 SQL입니다.',
-  SQL_EXECUTION_ERROR: 'SQL을 실행하지 못했습니다.',
+  SQL_EXECUTION_ERROR: '조회를 실행하지 못했습니다.',
+  TOOL_REJECTED: '조회 도구에 넘길 값이 올바르지 않습니다.',
   FORMAT_ERROR: '모델의 답변 형식이 올바르지 않습니다.',
   LLM_UNAVAILABLE: '모델 서버에 연결하지 못했습니다.',
 }
@@ -62,6 +63,33 @@ function ResultTable({ response }: { response: ChatResponse }) {
   )
 }
 
+function ToolCall({ tool }: { tool: ToolInfo }) {
+  const args = Object.entries(tool.args ?? {})
+    .map(([key, value]) => `${key}=${value}`)
+    .join(', ')
+  return (
+    <pre>
+      {tool.name ?? '(이름 없음)'}({args})
+    </pre>
+  )
+}
+
+/** 문장은 숫자가 조회 결과에서 확인된 것만 온다. 확인은 숫자의 출처만 보므로 "검증된 답"이라고 부르지 않는다. */
+function AnswerSentence({ response }: { response: ChatResponse }) {
+  if (response.answerStatus === 'VERIFIED' && response.answer) {
+    return (
+      <div className="sentence">
+        <p>{response.answer}</p>
+        <p className="muted small">문장의 숫자는 아래 조회 결과에 있는 값입니다.</p>
+      </div>
+    )
+  }
+  if (response.answerStatus === 'REJECTED') {
+    return <p className="muted small">답변 문장의 숫자가 조회 결과와 맞지 않아 표만 보여 드립니다.</p>
+  }
+  return null
+}
+
 function Answer({ response }: { response: ChatResponse }) {
   const meta = `${(response.elapsedMs / 1000).toFixed(1)}초 · 모델 호출 ${response.attempts}회 · ${response.promptVersion}`
 
@@ -72,20 +100,29 @@ function Answer({ response }: { response: ChatResponse }) {
         <p className="error-text">{STATUS_TEXT[response.status]}</p>
         {response.message && <p className="muted">{response.message}</p>}
         {response.sql && <pre>{response.sql}</pre>}
+        {response.tool && <ToolCall tool={response.tool} />}
         <p className="meta">{meta}</p>
       </div>
     )
   }
-  if (response.action === 'sql') {
+  if (response.action === 'sql' || response.action === 'tool') {
     return (
       <div className="answer">
         <span className="badge">조회 결과 {response.rowCount ?? 0}행</span>
+        <AnswerSentence response={response} />
         {response.truncated && <p className="muted">결과가 많아 앞부분만 표시했습니다.</p>}
         <ResultTable response={response} />
-        <details>
-          <summary>근거 SQL (기준일 {response.asOfDate})</summary>
-          <pre>{response.sql}</pre>
-        </details>
+        {response.action === 'tool' && response.tool ? (
+          <details>
+            <summary>근거: 조회 도구 (기준일 {response.asOfDate})</summary>
+            <ToolCall tool={response.tool} />
+          </details>
+        ) : (
+          <details>
+            <summary>근거 SQL (기준일 {response.asOfDate})</summary>
+            <pre>{response.sql}</pre>
+          </details>
+        )}
         <p className="meta">{meta}</p>
       </div>
     )

@@ -125,6 +125,27 @@ class GoldenSetIT {
         assertThat(fewShotQuestions).doesNotContainAnyElementsOf(goldenQuestions);
     }
 
+    /** 라우터 예시와 SQL 단계 예시는 기본·심화·홀드아웃 세 세트의 어느 문항과도 겹치지 않아야 한다(PRD 10.7). */
+    @Test
+    void fewShotAndRouterExamplesDoNotOverlapAnyGoldenSet() throws IOException {
+        Path evalDir = Path.of(evalProperties.goldenPath()).toAbsolutePath().normalize().getParent();
+        List<String> goldenQuestions = new ArrayList<>();
+        for (String file : List.of("golden_set.json", "golden_set_deep.json", "golden_set_v3.json")) {
+            loader.load(evalDir.resolve(file)).forEach(item -> goldenQuestions.add(normalize(item.question())));
+        }
+        assertThat(goldenQuestions).hasSize(70);
+
+        Path promptsDir = Path.of(chatProperties.promptsDir());
+        List<String> exampleQuestions = new ArrayList<>();
+        for (String file : List.of("fewshot.json", "router_fewshot.json")) {
+            for (JsonNode example : objectMapper.readTree(Files.readAllBytes(promptsDir.resolve(file)))) {
+                exampleQuestions.add(normalize(example.get("question").asText()));
+            }
+        }
+
+        assertThat(exampleQuestions).hasSize(15).doesNotContainAnyElementsOf(goldenQuestions);
+    }
+
     private List<GoldenItem> sqlItems() {
         return items.stream().filter(item -> item.expectedAction() == Action.SQL).toList();
     }

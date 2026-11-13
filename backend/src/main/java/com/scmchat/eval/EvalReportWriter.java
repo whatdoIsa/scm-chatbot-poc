@@ -98,12 +98,20 @@ public class EvalReportWriter {
                         .append(" | ").append(cell(result.getActualAction()))
                         .append(" | ").append(result.getStatus())
                         .append(" | ").append(errorTypeOf(result))
-                        .append(" | ").append(cell(result.getGeneratedSql()))
+                        .append(" | ").append(cell(queryOf(result)))
                         .append(" | ").append(cell(result.getDetail()))
                         .append(" |\n");
             }
         }
         return out.toString();
+    }
+
+    /** 도구로 답한 문항은 SQL이 없으므로 도구 호출을 대신 보여준다. */
+    private static String queryOf(EvalResult result) {
+        if (result.getGeneratedSql() == null && result.getToolName() != null) {
+            return "tool: " + result.getToolName() + " " + result.getToolArgs();
+        }
+        return result.getGeneratedSql();
     }
 
     private static String errorTypeOf(EvalResult result) {

@@ -65,6 +65,15 @@ public class EvalResult {
     @Column(columnDefinition = "text")
     private String detail;
 
+    @Column(length = 16)
+    private String route;
+
+    @Column(name = "tool_name", length = 32)
+    private String toolName;
+
+    @Column(name = "tool_args", columnDefinition = "text")
+    private String toolArgs;
+
     protected EvalResult() {
     }
 
@@ -85,6 +94,25 @@ public class EvalResult {
         this.completionTokens = completionTokens;
         this.elapsedMs = elapsedMs;
         this.detail = detail;
+    }
+
+    /** v3 라우터가 고른 경로와 도구 호출(인자는 JSON 문자열). v0~v2에서는 부르지 않아 NULL로 남는다. */
+    public void recordRoute(String route, String toolName, String toolArgs) {
+        this.route = route;
+        this.toolName = toolName;
+        this.toolArgs = toolArgs;
+    }
+
+    public String getRoute() {
+        return route;
+    }
+
+    public String getToolName() {
+        return toolName;
+    }
+
+    public String getToolArgs() {
+        return toolArgs;
     }
 
     public Long getId() {

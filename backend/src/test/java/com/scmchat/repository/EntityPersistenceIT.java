@@ -67,6 +67,45 @@ class EntityPersistenceIT {
         assertThat(found.getRun().getAccuracy()).isNull();
     }
 
+    @Test
+    void savesRouteAndToolCallOnChatLogAndEvalResult() {
+        ChatLog chatLog = new ChatLog("SKU-012의 재고보유일수는?", "v3", "qwen2.5-coder:7b", "tool", "OK",
+                null, 1, 1, 900, 40, 3100, null);
+        chatLog.recordRoute("tool", "days_of_supply", "{\"sku\":\"SKU-012\",\"output\":\"value\"}");
+        chatLog = chatLogRepository.save(chatLog);
+        EvalRun run = evalRunRepository.save(new EvalRun(
+                "v3", "qwen2.5-coder:7b", new BigDecimal("0.00"), 42, 1, "b".repeat(64), OffsetDateTime.now()));
+        EvalResult result = new EvalResult(
+                run, "Q15", "METRIC", "sql", "tool", null, true, null, "OK", 1, 900, 40, 3100, null);
+        result.recordRoute("tool", "days_of_supply", "{\"sku\":\"SKU-012\",\"output\":\"value\"}");
+        result = evalResultRepository.save(result);
+        flushAndClear();
+
+        ChatLog foundLog = chatLogRepository.findById(chatLog.getId()).orElseThrow();
+        EvalResult foundResult = evalResultRepository.findById(result.getId()).orElseThrow();
+
+        assertThat(foundLog.getRoute()).isEqualTo("tool");
+        assertThat(foundLog.getToolName()).isEqualTo("days_of_supply");
+        assertThat(foundLog.getToolArgs()).contains("SKU-012");
+        assertThat(foundLog.getGeneratedSql()).isNull();
+        assertThat(foundResult.getRoute()).isEqualTo("tool");
+        assertThat(foundResult.getToolName()).isEqualTo("days_of_supply");
+        assertThat(foundResult.getToolArgs()).contains("SKU-012");
+    }
+
+    @Test
+    void leavesRouteColumnsNullWhenNotRouted() {
+        ChatLog saved = chatLogRepository.save(new ChatLog(
+                "SKU-007의 현재 재고는?", "v1", "qwen2.5-coder:7b", "sql", "OK", "SELECT 1", 1, 1, 120, 30, 850, null));
+        flushAndClear();
+
+        ChatLog found = chatLogRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(found.getRoute()).isNull();
+        assertThat(found.getToolName()).isNull();
+        assertThat(found.getToolArgs()).isNull();
+    }
+
     private void flushAndClear() {
         entityManager.flush();
         entityManager.clear();

@@ -14,6 +14,7 @@ import com.scmchat.repository.EvalRunRepository;
 import com.scmchat.service.ChatResult;
 import com.scmchat.service.ChatService;
 import com.scmchat.service.ChatStatus;
+import com.scmchat.tool.ToolArgsJson;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.file.Path;
@@ -117,7 +118,7 @@ public class EvalRunner implements ApplicationRunner {
             }
             QueryResult expected = item.expectedAction() == Action.SQL ? executor.execute(item.goldenSql()) : null;
             GradeResult grade = grader.grade(item, actual, expected);
-            results.add(evalResultRepository.save(new EvalResult(
+            EvalResult result = new EvalResult(
                     run,
                     item.id(),
                     item.type().name(),
@@ -131,7 +132,11 @@ public class EvalRunner implements ApplicationRunner {
                     actual.promptTokens(),
                     actual.completionTokens(),
                     actual.elapsedMs(),
-                    grade.detail())));
+                    grade.detail());
+            if (actual.route() != null) {
+                result.recordRoute(actual.route().value(), actual.toolName(), ToolArgsJson.write(actual.toolArgs()));
+            }
+            results.add(evalResultRepository.save(result));
         }
     }
 

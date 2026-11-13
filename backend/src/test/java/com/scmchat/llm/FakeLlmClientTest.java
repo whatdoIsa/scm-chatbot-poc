@@ -13,7 +13,7 @@ class FakeLlmClientTest {
 
     @Test
     void returnsDefaultClarifyReplyWhenQueueIsEmpty() {
-        LlmReply reply = client.generate(MESSAGES);
+        LlmReply reply = client.generate(MESSAGES, OutputFormat.ACTION);
 
         assertThat(reply).isEqualTo(new LlmReply("{\"action\":\"clarify\",\"sql\":\"\",\"message\":\"fake\"}", 0, 0));
         assertThat(new LlmOutputParser().parse(reply.rawContent()))
@@ -24,13 +24,29 @@ class FakeLlmClientTest {
     void returnsQueuedRepliesInOrderThenFallsBackToDefault() {
         client.enqueue("first", "second");
 
-        assertThat(client.generate(MESSAGES).rawContent()).isEqualTo("first");
-        assertThat(client.generate(MESSAGES).rawContent()).isEqualTo("second");
-        assertThat(client.generate(MESSAGES).rawContent()).isEqualTo(FakeLlmClient.DEFAULT_REPLY);
+        assertThat(client.generate(MESSAGES, OutputFormat.ACTION).rawContent()).isEqualTo("first");
+        assertThat(client.generate(MESSAGES, OutputFormat.ACTION).rawContent()).isEqualTo("second");
+        assertThat(client.generate(MESSAGES, OutputFormat.ACTION).rawContent()).isEqualTo(FakeLlmClient.DEFAULT_REPLY);
     }
 
     @Test
     void reportsFakeAsModelName() {
         assertThat(client.modelName()).isEqualTo("fake");
+    }
+
+    @Test
+    void defaultReplyFollowsTheRequestedFormat() {
+        LlmOutputParser parser = new LlmOutputParser();
+
+        assertThat(parser.parseRoute(client.generate(MESSAGES, OutputFormat.ROUTE).rawContent()).route())
+                .isEqualTo(Route.CLARIFY);
+        assertThat(parser.parseAnswer(client.generate(MESSAGES, OutputFormat.ANSWER).rawContent())).isNull();
+    }
+
+    @Test
+    void queuedReplyIsReturnedWhateverTheFormat() {
+        client.enqueue("queued");
+
+        assertThat(client.generate(MESSAGES, OutputFormat.ROUTE).rawContent()).isEqualTo("queued");
     }
 }

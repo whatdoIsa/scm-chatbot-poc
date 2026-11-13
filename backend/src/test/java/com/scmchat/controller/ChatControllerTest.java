@@ -71,7 +71,8 @@ class ChatControllerTest {
                           "rows": [["2026-11-08", 120, 1500.50, null]],
                           "rowCount": 1, "truncated": false,
                           "asOfDate": "2026-11-08", "promptVersion": "v1", "model": "qwen2.5-coder:7b",
-                          "attempts": 1, "elapsedMs": 6120, "chatLogId": 41
+                          "attempts": 1, "elapsedMs": 6120, "chatLogId": 41,
+                          "route": null, "tool": null
                         }
                         """, JsonCompareMode.STRICT));
     }
@@ -89,9 +90,70 @@ class ChatControllerTest {
                           "action": "clarify", "status": "OK", "message": "어느 품목·거점·기간의 재고를 확인할까요?",
                           "sql": null, "columns": null, "rows": null, "rowCount": null, "truncated": false,
                           "asOfDate": "2026-11-08", "promptVersion": "v1", "model": "qwen2.5-coder:7b",
-                          "attempts": 1, "elapsedMs": 2310, "chatLogId": 42
+                          "attempts": 1, "elapsedMs": 2310, "chatLogId": 42,
+                          "route": null, "tool": null
                         }
                         """, JsonCompareMode.STRICT));
+    }
+
+    @Test
+    void returnsToolResultWithRouteAndToolCall() throws Exception {
+        QueryResult rows = new QueryResult(List.of("days_of_supply"),
+                List.of(List.<Object>of(new BigDecimal("12.4907"))), false);
+        java.util.Map<String, Object> args = new java.util.LinkedHashMap<>();
+        args.put("sku", "SKU-026");
+        args.put("location", "서울센터");
+        args.put("output", "value");
+        when(chatService.answer(any(), any())).thenReturn(new ChatResult(
+                Action.TOOL, ChatStatus.OK, null, null, rows, PromptVersion.V3, "qwen2.5-coder:7b",
+                1, 900, 40, 3100, 77L, com.scmchat.llm.Route.TOOL, "days_of_supply", args));
+
+        postQuestion("서울센터 SKU-026의 재고보유일수는?")
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        {
+                          "action": "tool", "status": "OK", "message": null, "sql": null,
+                          "columns": ["days_of_supply"],
+                          "rows": [[12.4907]],
+                          "rowCount": 1, "truncated": false,
+                          "asOfDate": "2026-11-08", "promptVersion": "v3", "model": "qwen2.5-coder:7b",
+                          "attempts": 1, "elapsedMs": 3100, "chatLogId": 77,
+                          "route": "tool",
+                          "tool": {"name": "days_of_supply",
+                                   "args": {"sku": "SKU-026", "location": "서울센터", "output": "value"}}
+                        }
+                        """, JsonCompareMode.STRICT));
+    }
+
+    @Test
+    void returnsRejectedToolCallWithTheReason() throws Exception {
+        when(chatService.answer(any(), any())).thenReturn(new ChatResult(
+                Action.TOOL, ChatStatus.TOOL_REJECTED, "unknown location: 서울", null, null, PromptVersion.V3,
+                "qwen2.5-coder:7b", 1, 900, 40, 2500, 78L, com.scmchat.llm.Route.TOOL, "days_of_supply",
+                java.util.Map.of("location", "서울")));
+
+        postQuestion("서울 재고보유일수는?")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.action").value("tool"))
+                .andExpect(jsonPath("$.status").value("TOOL_REJECTED"))
+                .andExpect(jsonPath("$.message").value("unknown location: 서울"))
+                .andExpect(jsonPath("$.route").value("tool"))
+                .andExpect(jsonPath("$.tool.name").value("days_of_supply"))
+                .andExpect(jsonPath("$.tool.args.location").value("서울"))
+                .andExpect(jsonPath("$.rows").doesNotExist());
+    }
+
+    @Test
+    void returnsToolObjectForARejectedCallEvenWithoutAToolName() throws Exception {
+        when(chatService.answer(any(), any())).thenReturn(new ChatResult(
+                Action.TOOL, ChatStatus.TOOL_REJECTED, "unknown tool: null", null, null, PromptVersion.V3,
+                "qwen2.5-coder:7b", 1, 900, 40, 2500, 79L, com.scmchat.llm.Route.TOOL, null, java.util.Map.of()));
+
+        postQuestion("그 지표 알려줘")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.route").value("tool"))
+                .andExpect(jsonPath("$.tool.name").doesNotExist())
+                .andExpect(jsonPath("$.tool.args").isMap());
     }
 
     @ParameterizedTest
@@ -99,6 +161,7 @@ class ChatControllerTest {
             "OK, 200",
             "SQL_REJECTED, 422",
             "SQL_EXECUTION_ERROR, 422",
+            "TOOL_REJECTED, 422",
             "FORMAT_ERROR, 422",
             "LLM_UNAVAILABLE, 502"
     })

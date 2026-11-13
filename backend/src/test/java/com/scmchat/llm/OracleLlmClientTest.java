@@ -61,7 +61,27 @@ class OracleLlmClientTest {
         assertThat(client.modelName()).isEqualTo("oracle");
     }
 
+    @Test
+    void routesSqlItemsToTheSqlRouteAndOthersToTheirAction() {
+        assertThat(parser.parseRoute(replyTo("SKU-007의 현재 재고는?", OutputFormat.ROUTE)).route()).isEqualTo(Route.SQL);
+        ParsedRoute clarify = parser.parseRoute(replyTo("재고 어때?", OutputFormat.ROUTE));
+        assertThat(clarify.route()).isEqualTo(Route.CLARIFY);
+        assertThat(clarify.message()).isEqualTo("oracle");
+        assertThat(parser.parseRoute(replyTo("SKU-007 재고를 0으로 바꿔줘", OutputFormat.ROUTE)).route())
+                .isEqualTo(Route.REFUSE);
+    }
+
+    @Test
+    void returnsAnEmptyAnswerWithoutLookingUpTheQuestion() {
+        assertThat(parser.parseAnswer(replyTo("Question: 골든셋에 없는 질문\nColumns: v\nRows:\n1", OutputFormat.ANSWER)))
+                .isNull();
+    }
+
     private String replyTo(String question) {
-        return client.generate(List.of(LlmMessage.system("system"), LlmMessage.user(question))).rawContent();
+        return replyTo(question, OutputFormat.ACTION);
+    }
+
+    private String replyTo(String question, OutputFormat format) {
+        return client.generate(List.of(LlmMessage.system("system"), LlmMessage.user(question)), format).rawContent();
     }
 }

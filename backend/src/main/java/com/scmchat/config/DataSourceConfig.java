@@ -11,8 +11,9 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * app(scm_app)은 JPA, MyBatis, 기본 JdbcTemplate이 쓰는 기본 DataSource다.
- * scm-ro(scm_ro)는 LLM이 만든 SQL을 실행하는 경로 전용이며 scmRoJdbcTemplate으로만 꺼내 쓴다.
+ * app(scm_app)은 JPA, 평가 집계 매퍼, 기본 JdbcTemplate이 쓰는 기본 DataSource다.
+ * scm-ro(scm_ro)는 scm 스키마를 읽기만 하는 경로 전용이다. LLM이 만든 SQL은 scmRoJdbcTemplate으로,
+ * 조회 도구의 고정 쿼리는 MyBatisConfig의 scmRoSqlSessionFactory로 실행한다.
  */
 @Configuration(proxyBeanMethods = false)
 public class DataSourceConfig {

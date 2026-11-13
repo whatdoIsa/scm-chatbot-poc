@@ -1,0 +1,33 @@
+# 조회 도구 목록(PRD 10.4, API_SPEC 8.4). 라우터 프롬프트의 {{TOOLS}}로 렌더링된다.
+# 이름과 outputs는 ToolName과 같아야 하며, 다르면 ToolCatalog가 읽을 때 실패한다.
+tools:
+  - name: avg_daily_sales
+    metric: 일평균 판매량(최근 N일)
+    description: "최근 N일 qty 합 / N. 기준일에서 끝나는 최근 N일만 지원한다(days = N)."
+    args: [sku, location, days]
+    outputs: [value, ranking]
+  - name: days_of_supply
+    metric: 재고보유일수
+    description: "기준일 on_hand / (최근 28일 qty 합 / 28)."
+    args: [sku, location]
+    outputs: [value, ranking]
+  - name: stockout_rate
+    metric: 결품률
+    description: "기간 내 on_hand = 0인 (SKU, 거점, 일) 수 / 기간 내 전체 (SKU, 거점, 일) 수. start_date와 end_date를 비우면 전체 데이터 기간."
+    args: [sku, location, start_date, end_date]
+    outputs: [value, ranking]
+  - name: forecast_accuracy
+    metric: 예측 정확도
+    description: "1 - WMAPE. 최근 13주 전체가 대상이다."
+    args: [sku, location]
+    outputs: [value, ranking]
+  - name: below_safety_stock
+    metric: 안전재고 미달
+    description: "기준일 on_hand < safety_stock인 SKU-거점."
+    args: [sku, location]
+    outputs: [list, count]
+  - name: reorder_needed
+    metric: 재주문 필요
+    description: "기준일 on_hand + in_transit <= reorder_point인 SKU-거점."
+    args: [sku, location]
+    outputs: [list, count]

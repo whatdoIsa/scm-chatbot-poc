@@ -173,15 +173,57 @@ class PromptBuilderTest {
     void rejectsUnknownConfiguredVersionAtStartup() {
         ChatProperties.Llm llm = new ChatProperties.Llm(
                 "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
-        ChatProperties properties = new ChatProperties("v9", LocalDate.of(2026, 11, 8), 1000, 200, "../prompts", llm);
+        ChatProperties properties = new ChatProperties("v9", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, "../prompts", llm);
 
         assertThatThrownBy(() -> new PromptBuilder(properties)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void routerPromptHasAsOfDateDateRulesToolsAndExamples() {
+        List<LlmMessage> messages = builder.buildRouter(QUESTION);
+        String system = messages.get(0).content();
+
+        assertThat(messages).hasSize(2);
+        assertThat(messages.get(1)).isEqualTo(LlmMessage.user(QUESTION));
+        assertThat(system).contains("The as-of date (\"today\") is 2026-11-08.");
+        assertThat(system).contains("지난주", "2026-10-26 ~ 2026-11-01");
+        assertThat(system).contains("- avg_daily_sales (", "- days_of_supply (", "- stockout_rate (",
+                "- forecast_accuracy (", "- below_safety_stock (", "- reorder_needed (");
+        assertThat(system).contains("\"tool\"", "\"sql\"", "\"clarify\"", "\"refuse\"");
+        assertThat(system.split("Question: ", -1)).hasSize(11);
+        assertThat(system).doesNotContain("{{", "CREATE TABLE");
+    }
+
+    @Test
+    void routerSystemPromptDoesNotDependOnTheQuestion() {
+        String first = builder.buildRouter(QUESTION).get(0).content();
+        String second = builder.buildRouter("재고보유일수가 가장 짧은 품목 5개는?").get(0).content();
+
+        assertThat(second).isEqualTo(first);
+        assertThat(first).doesNotContain(QUESTION);
+    }
+
+    @Test
+    void v3HasNoSinglePrompt() {
+        assertThatThrownBy(() -> builder.build(PromptVersion.V3, QUESTION))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("buildRouter");
+    }
+
+    @Test
+    void startsWithV3Configured() {
+        ChatProperties.Llm llm = new ChatProperties.Llm(
+                "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
+
+        new PromptBuilder(new ChatProperties(
+                "v3", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, "../prompts", llm));
     }
 
     @Test
     void parsesVersionValues() {
         assertThat(PromptVersion.fromValue("v0")).isEqualTo(PromptVersion.V0);
         assertThat(PromptVersion.V2.value()).isEqualTo("v2");
+        assertThat(PromptVersion.fromValue("v3")).isEqualTo(PromptVersion.V3);
         assertThatThrownBy(() -> PromptVersion.fromValue("v9")).isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -189,6 +231,6 @@ class PromptBuilderTest {
         ChatProperties.Llm llm = new ChatProperties.Llm(
                 "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
         return new PromptBuilder(new ChatProperties(
-                "v0", LocalDate.of(2026, 11, 8), 1000, 200, promptsDir.toString(), llm));
+                "v0", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, promptsDir.toString(), llm));
     }
 }

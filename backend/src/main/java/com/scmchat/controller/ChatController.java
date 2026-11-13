@@ -39,7 +39,7 @@ public class ChatController {
     private static HttpStatus httpStatusOf(ChatStatus status) {
         return switch (status) {
             case OK -> HttpStatus.OK;
-            case SQL_REJECTED, SQL_EXECUTION_ERROR, FORMAT_ERROR -> HttpStatus.UNPROCESSABLE_ENTITY;
+            case SQL_REJECTED, SQL_EXECUTION_ERROR, TOOL_REJECTED, FORMAT_ERROR -> HttpStatus.UNPROCESSABLE_ENTITY;
             case LLM_UNAVAILABLE -> HttpStatus.BAD_GATEWAY;
         };
     }

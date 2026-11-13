@@ -13,6 +13,7 @@ import org.springframework.validation.annotation.Validated;
 public record ChatProperties(
         @NotBlank String promptVersion,
         @NotNull LocalDate asOfDate,
+        @NotNull LocalDate dataStartDate,
         @Min(1) int maxRows,
         @Min(1) int validatorLimit,
         @NotBlank String promptsDir,

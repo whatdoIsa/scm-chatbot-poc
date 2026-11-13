@@ -9,8 +9,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
-/** prompts/fewshot.json의 예시를 읽는다(API_SPEC 4.3). 각 예시의 output은 실제 응답 형식을 지켜야 한다. */
+/** prompts/fewshot.json, router_fewshot.json의 예시를 읽는다(API_SPEC 4.3, 8.3). 각 예시의 output은 실제 응답 형식을 지켜야 한다. */
 public class FewShotLoader {
 
     public record FewShot(String question, String outputJson) {
@@ -18,14 +19,23 @@ public class FewShotLoader {
 
     private final List<FewShot> examples;
 
+    /** SQL 단계의 예시(ACTION 형식). */
     public FewShotLoader(Path file) {
+        this(file, new LlmOutputParser()::parse);
+    }
+
+    /** v3 라우터의 예시(ROUTE 형식, API_SPEC 8.3). */
+    public static FewShotLoader forRouter(Path file) {
+        return new FewShotLoader(file, new LlmOutputParser()::parseRoute);
+    }
+
+    private FewShotLoader(Path file, Consumer<String> formatCheck) {
         ObjectMapper objectMapper = new ObjectMapper();
-        LlmOutputParser parser = new LlmOutputParser();
         List<FewShot> loaded = new ArrayList<>();
         try {
             JsonNode root = objectMapper.readTree(Files.readAllBytes(file));
             if (root == null || !root.isArray() || root.isEmpty()) {
-                throw new IllegalStateException("fewshot.json must be a non-empty JSON array");
+                throw new IllegalStateException(file.getFileName() + " must be a non-empty JSON array");
             }
             for (JsonNode node : root) {
                 JsonNode question = node.get("question");
@@ -34,7 +44,7 @@ public class FewShotLoader {
                     throw new IllegalStateException("every few-shot example needs question and output");
                 }
                 String outputJson = objectMapper.writeValueAsString(output);
-                parser.parse(outputJson);
+                formatCheck.accept(outputJson);
                 loaded.add(new FewShot(question.asText().strip(), outputJson));
             }
         } catch (IOException e) {

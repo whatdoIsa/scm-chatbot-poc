@@ -28,7 +28,8 @@ class OllamaLlmClientIT {
     void returnsParseableJsonWithTokenCounts() {
         assertThat(llmClient).isInstanceOf(OllamaLlmClient.class);
 
-        LlmReply reply = llmClient.generate(promptBuilder.build(PromptVersion.V0, "SKU-007의 현재 재고는?"));
+        LlmReply reply = llmClient.generate(promptBuilder.build(PromptVersion.V0, "SKU-007의 현재 재고는?"),
+                OutputFormat.ACTION);
         ParsedOutput output = parser.parse(reply.rawContent());
 
         assertThat(output.action()).isNotNull();

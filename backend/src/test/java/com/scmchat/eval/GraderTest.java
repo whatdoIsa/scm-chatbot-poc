@@ -105,6 +105,40 @@ class GraderTest {
     }
 
     @Test
+    void gradesToolAnswersByResultLikeSqlAnswers() {
+        assertThat(grader.grade(SQL_ITEM, toolAnswer(ChatStatus.OK, rows(284)), EXPECTED))
+                .isEqualTo(new GradeResult(true, null, null));
+
+        GradeResult wrong = grader.grade(SQL_ITEM, toolAnswer(ChatStatus.OK, rows(100)), EXPECTED);
+        assertThat(wrong.correct()).isFalse();
+        assertThat(wrong.errorType()).isNull();
+    }
+
+    @Test
+    void classifiesRejectedToolCallAsToolArgument() {
+        ChatResult rejected = new ChatResult(Action.TOOL, ChatStatus.TOOL_REJECTED, "unknown location: 서울", null,
+                null, PromptVersion.V3, "m", 1, 0, 0, 1, 1L, com.scmchat.llm.Route.TOOL, "days_of_supply",
+                java.util.Map.of("location", "서울"));
+
+        assertThat(grader.grade(SQL_ITEM, rejected, EXPECTED))
+                .isEqualTo(new GradeResult(false, ErrorType.TOOL_ARGUMENT, "unknown location: 서울"));
+    }
+
+    @Test
+    void classifiesToolExecutionErrorAsSqlExecutionError() {
+        assertThat(grader.grade(SQL_ITEM, toolAnswer(ChatStatus.SQL_EXECUTION_ERROR, null), EXPECTED).errorType())
+                .isEqualTo(ErrorType.SQL_EXECUTION_ERROR);
+    }
+
+    @Test
+    void toolAnswerToAClarifyOrRefuseItemIsAnActionMismatch() {
+        assertThat(grader.grade(CLARIFY_ITEM, toolAnswer(ChatStatus.OK, rows(1)), null))
+                .isEqualTo(new GradeResult(false, ErrorType.ACTION_MISMATCH, "expected clarify but was tool"));
+        assertThat(grader.grade(REFUSE_ITEM, toolAnswer(ChatStatus.TOOL_REJECTED, null), null).errorType())
+                .isEqualTo(ErrorType.ACTION_MISMATCH);
+    }
+
+    @Test
     void usesOrderSensitivityOfTheItem() {
         GoldenItem ranking = new GoldenItem(
                 "Q22", QuestionType.RANKING, "상위 2개는?", Action.SQL, "SELECT 1 ORDER BY 1", true, null);
@@ -117,6 +151,12 @@ class GraderTest {
 
     private static QueryResult rows(Object value) {
         return new QueryResult(List.of("v"), List.of(List.of(value)), false);
+    }
+
+    private static ChatResult toolAnswer(ChatStatus status, QueryResult result) {
+        return new ChatResult(Action.TOOL, status, status == ChatStatus.OK ? null : "reason", null, result,
+                PromptVersion.V3, "m", 1, 0, 0, 1, 1L, com.scmchat.llm.Route.TOOL, "days_of_supply",
+                java.util.Map.of("sku", "SKU-007", "output", "value"));
     }
 
     private static ChatResult answer(Action action, ChatStatus status, QueryResult result) {

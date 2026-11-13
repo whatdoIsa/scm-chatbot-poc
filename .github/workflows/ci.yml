@@ -36,7 +36,7 @@ jobs:
             echo "SCM_RO_DB_PASSWORD=$ro_pw"
           } > .env
       - name: Frozen golden set hashes
-        run: sha256sum -c eval/golden_set.sha256 eval/golden_set_deep.sha256
+        run: sha256sum -c eval/golden_set.sha256 eval/golden_set_deep.sha256 eval/golden_set_v3.sha256
       - name: Start database and verify seed
         run: |
           bash scripts/db_reset.sh
@@ -55,10 +55,12 @@ jobs:
         run: |
           set -o pipefail
           set -a; . ../.env; set +a
-          ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v0,v1,v2 --eval.report-dir=build/eval-reports' | tee oracle.log
-          test "$(grep -c '^| 정확도 | 30 / 30 = 1.0000 |' oracle.log)" = "3"
-          ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v2 --eval.golden-path=../eval/golden_set_deep.json --eval.golden-hash-path=../eval/golden_set_deep.sha256 --eval.report-dir=build/eval-reports' | tee oracle-deep.log
-          test "$(grep -c '^| 정확도 | 20 / 20 = 1.0000 |' oracle-deep.log)" = "1"
+          ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v0,v1,v2,v3 --eval.report-dir=build/eval-reports' | tee oracle.log
+          test "$(grep -c '^| 정확도 | 30 / 30 = 1.0000 |' oracle.log)" = "4"
+          ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v2,v3 --eval.golden-path=../eval/golden_set_deep.json --eval.golden-hash-path=../eval/golden_set_deep.sha256 --eval.report-dir=build/eval-reports' | tee oracle-deep.log
+          test "$(grep -c '^| 정확도 | 20 / 20 = 1.0000 |' oracle-deep.log)" = "2"
+          ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v2,v3 --eval.golden-path=../eval/golden_set_v3.json --eval.golden-hash-path=../eval/golden_set_v3.sha256 --eval.report-dir=build/eval-reports' | tee oracle-holdout.log
+          test "$(grep -c '^| 정확도 | 20 / 20 = 1.0000 |' oracle-holdout.log)" = "2"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.scmchat.entity.ChatLog;
 import com.scmchat.llm.Action;
 import com.scmchat.llm.FakeLlmClient;
+import com.scmchat.llm.Route;
 import com.scmchat.prompt.PromptVersion;
 import com.scmchat.repository.ChatLogRepository;
 import org.junit.jupiter.api.Tag;
@@ -121,5 +122,81 @@ class ChatServiceIT {
         assertThat(result.action()).isEqualTo(Action.CLARIFY);
         assertThat(result.status()).isEqualTo(ChatStatus.OK);
         assertThat(result.message()).isEqualTo("fake");
+    }
+
+    @Test
+    void v3ToolRouteRunsTheFixedQueryAndLogsTheCall() {
+        fakeLlm.enqueue("""
+                {"route":"tool","tool":"days_of_supply","sku":"SKU-7","location":"서울센터","days":0,
+                 "start_date":"","end_date":"","output":"value","top_n":0,"order":"","message":""}""");
+
+        ChatResult result = chatService.answer("서울센터 SKU-7의 재고보유일수는?", PromptVersion.V3);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.OK);
+        assertThat(result.action()).isEqualTo(Action.TOOL);
+        assertThat(result.route()).isEqualTo(Route.TOOL);
+        assertThat(result.toolName()).isEqualTo("days_of_supply");
+        assertThat(result.toolArgs()).containsEntry("sku", "SKU-007").containsEntry("location", "서울센터");
+        assertThat(result.sql()).isNull();
+        assertThat(result.result().columns()).containsExactly("days_of_supply");
+        assertThat(result.result().rows()).hasSize(1);
+        assertThat(result.attempts()).isEqualTo(1);
+
+        ChatLog saved = chatLogRepository.findById(result.chatLogId()).orElseThrow();
+        assertThat(saved.getPromptVersion()).isEqualTo("v3");
+        assertThat(saved.getAction()).isEqualTo("tool");
+        assertThat(saved.getRoute()).isEqualTo("tool");
+        assertThat(saved.getToolName()).isEqualTo("days_of_supply");
+        assertThat(saved.getToolArgs()).isEqualTo(
+                "{\"sku\":\"SKU-007\",\"location\":\"서울센터\",\"output\":\"value\"}");
+        assertThat(saved.getGeneratedSql()).isNull();
+        assertThat(saved.getRowCount()).isEqualTo(1);
+    }
+
+    @Test
+    void v3RejectsAToolCallForAnUnknownLocationWithoutQuerying() {
+        fakeLlm.enqueue("{\"route\":\"tool\",\"tool\":\"stockout_rate\",\"location\":\"인천센터\",\"output\":\"value\"}");
+
+        ChatResult result = chatService.answer("인천센터 결품률은?", PromptVersion.V3);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.TOOL_REJECTED);
+        assertThat(result.action()).isEqualTo(Action.TOOL);
+        assertThat(result.message()).contains("unknown location: 인천센터");
+        assertThat(result.result()).isNull();
+        ChatLog saved = chatLogRepository.findById(result.chatLogId()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo("TOOL_REJECTED");
+        assertThat(saved.getToolArgs()).isEqualTo("{\"location\":\"인천센터\",\"output\":\"value\"}");
+        assertThat(saved.getErrorMessage()).contains("unknown location");
+    }
+
+    /** 출력 스키마를 강제하지 않는 provider는 enum 밖의 긴 도구 이름을 낼 수 있다. 그래도 로그 한 행은 남아야 한다. */
+    @Test
+    void v3LogsARejectedCallWhoseToolNameIsLongerThanTheColumn() {
+        String longName = "inventory_turnover_by_category_and_region_with_trend";
+        fakeLlm.enqueue("{\"route\":\"tool\",\"tool\":\"" + longName + "\",\"output\":\"value\"}");
+
+        ChatResult result = chatService.answer("카테고리별 재고회전율 추이는?", PromptVersion.V3);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.TOOL_REJECTED);
+        assertThat(result.message()).contains("unknown tool: " + longName);
+        ChatLog saved = chatLogRepository.findById(result.chatLogId()).orElseThrow();
+        assertThat(saved.getToolName()).isEqualTo(longName.substring(0, 32));
+        assertThat(result.toolName()).isEqualTo(saved.getToolName());
+    }
+
+    @Test
+    void v3SqlRouteValidatesAndExecutesTheGeneratedSql() {
+        fakeLlm.enqueue("{\"route\":\"sql\",\"message\":\"\"}",
+                "{\"action\":\"sql\",\"sql\":\"SELECT sku FROM product ORDER BY sku\",\"message\":\"\"}");
+
+        ChatResult result = chatService.answer("품목 코드를 모두 보여줘", PromptVersion.V3);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.OK);
+        assertThat(result.action()).isEqualTo(Action.SQL);
+        assertThat(result.route()).isEqualTo(Route.SQL);
+        assertThat(result.toolName()).isNull();
+        assertThat(result.sql()).isEqualTo("SELECT sku FROM product ORDER BY sku LIMIT 200");
+        assertThat(result.result().rows()).hasSize(50);
+        assertThat(result.attempts()).isEqualTo(2);
     }
 }

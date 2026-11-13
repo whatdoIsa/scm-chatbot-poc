@@ -63,9 +63,86 @@ class OllamaLlmClientTest {
                 .andRespond(withSuccess("{\"message\":{\"role\":\"assistant\",\"content\":\"{}\"}}",
                         MediaType.APPLICATION_JSON));
 
-        client.generate(MESSAGES);
+        client.generate(MESSAGES, OutputFormat.ACTION);
 
         server.verify();
+    }
+
+    /** v0~v2 측정 때 모델이 받은 본문과 한 글자도 다르지 않아야 한다(키 순서 포함). */
+    @Test
+    void actionRequestBodyIsByteForByteTheMeasuredOne() {
+        server.expect(requestTo("http://localhost:11434/api/chat"))
+                .andExpect(content().string("{\"model\":\"qwen2.5-coder:7b\","
+                        + "\"messages\":[{\"role\":\"system\",\"content\":\"system prompt\"},"
+                        + "{\"role\":\"user\",\"content\":\"SKU-007의 현재 재고는?\"}],"
+                        + "\"stream\":false,\"keep_alive\":\"30m\","
+                        + "\"format\":{\"type\":\"object\",\"properties\":{"
+                        + "\"action\":{\"type\":\"string\",\"enum\":[\"sql\",\"clarify\",\"refuse\"]},"
+                        + "\"sql\":{\"type\":\"string\"},\"message\":{\"type\":\"string\"}},"
+                        + "\"required\":[\"action\",\"sql\",\"message\"]},"
+                        + "\"options\":{\"temperature\":0.0,\"seed\":42,\"num_ctx\":8192}}"))
+                .andRespond(withSuccess("{\"message\":{\"role\":\"assistant\",\"content\":\"{}\"}}",
+                        MediaType.APPLICATION_JSON));
+
+        client.generate(MESSAGES, OutputFormat.ACTION);
+
+        server.verify();
+    }
+
+    @Test
+    void sendsTheRouteSchemaForRouterCalls() {
+        server.expect(requestTo("http://localhost:11434/api/chat"))
+                .andExpect(content().json("""
+                        {
+                          "model": "qwen2.5-coder:7b",
+                          "messages": [
+                            {"role": "system", "content": "system prompt"},
+                            {"role": "user", "content": "SKU-007의 현재 재고는?"}
+                          ],
+                          "stream": false,
+                          "keep_alive": "30m",
+                          "format": {
+                            "type": "object",
+                            "properties": {
+                              "route": {"type": "string", "enum": ["tool", "sql", "clarify", "refuse"]},
+                              "tool": {"type": "string", "enum": ["", "avg_daily_sales", "days_of_supply",
+                                "stockout_rate", "forecast_accuracy", "below_safety_stock", "reorder_needed"]},
+                              "sku": {"type": "string"},
+                              "location": {"type": "string"},
+                              "days": {"type": "integer"},
+                              "start_date": {"type": "string"},
+                              "end_date": {"type": "string"},
+                              "output": {"type": "string", "enum": ["", "value", "ranking", "list", "count"]},
+                              "top_n": {"type": "integer"},
+                              "order": {"type": "string", "enum": ["", "asc", "desc"]},
+                              "message": {"type": "string"}
+                            },
+                            "required": ["route", "tool", "sku", "location", "days", "start_date", "end_date",
+                              "output", "top_n", "order", "message"]
+                          },
+                          "options": {"temperature": 0, "seed": 42, "num_ctx": 8192}
+                        }
+                        """, JsonCompareMode.STRICT))
+                .andRespond(withSuccess("{\"message\":{\"role\":\"assistant\",\"content\":\"{}\"}}",
+                        MediaType.APPLICATION_JSON));
+
+        client.generate(MESSAGES, OutputFormat.ROUTE);
+
+        server.verify();
+    }
+
+    @Test
+    void routeSchemaListsEveryServerTool() {
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> properties =
+                (java.util.Map<String, Object>) OutputFormat.ROUTE.schema().get("properties");
+        @SuppressWarnings("unchecked")
+        List<String> tools = (List<String>) ((java.util.Map<String, Object>) properties.get("tool")).get("enum");
+
+        assertThat(tools).containsExactlyInAnyOrderElementsOf(java.util.stream.Stream.concat(
+                java.util.stream.Stream.of(""),
+                java.util.Arrays.stream(com.scmchat.tool.ToolName.values()).map(com.scmchat.tool.ToolName::value))
+                .toList());
     }
 
     @Test
@@ -76,7 +153,7 @@ class OllamaLlmClientTest {
                  "prompt_eval_count": 512, "eval_count": 37, "total_duration": 123}
                 """, MediaType.APPLICATION_JSON));
 
-        assertThat(client.generate(MESSAGES)).isEqualTo(new LlmReply("{\"action\":\"sql\"}", 512, 37));
+        assertThat(client.generate(MESSAGES, OutputFormat.ACTION)).isEqualTo(new LlmReply("{\"action\":\"sql\"}", 512, 37));
     }
 
     @Test
@@ -84,7 +161,7 @@ class OllamaLlmClientTest {
         server.expect(requestTo("http://localhost:11434/api/chat")).andRespond(withSuccess(
                 "{\"message\":{\"role\":\"assistant\",\"content\":\"x\"}}", MediaType.APPLICATION_JSON));
 
-        assertThat(client.generate(MESSAGES)).isEqualTo(new LlmReply("x", 0, 0));
+        assertThat(client.generate(MESSAGES, OutputFormat.ACTION)).isEqualTo(new LlmReply("x", 0, 0));
     }
 
     @Test
@@ -92,14 +169,14 @@ class OllamaLlmClientTest {
         server.expect(requestTo("http://localhost:11434/api/chat"))
                 .andRespond(withSuccess("{\"done\":true}", MediaType.APPLICATION_JSON));
 
-        assertThat(client.generate(MESSAGES)).isEqualTo(new LlmReply("", 0, 0));
+        assertThat(client.generate(MESSAGES, OutputFormat.ACTION)).isEqualTo(new LlmReply("", 0, 0));
     }
 
     @Test
     void wrapsServerErrorAsUnavailable() {
         server.expect(requestTo("http://localhost:11434/api/chat")).andRespond(withServerError());
 
-        assertThatThrownBy(() -> client.generate(MESSAGES)).isInstanceOf(LlmUnavailableException.class);
+        assertThatThrownBy(() -> client.generate(MESSAGES, OutputFormat.ACTION)).isInstanceOf(LlmUnavailableException.class);
     }
 
     @Test
@@ -108,7 +185,7 @@ class OllamaLlmClientTest {
             throw new IOException("Connection refused");
         });
 
-        assertThatThrownBy(() -> client.generate(MESSAGES))
+        assertThatThrownBy(() -> client.generate(MESSAGES, OutputFormat.ACTION))
                 .isInstanceOf(LlmUnavailableException.class)
                 .hasMessageContaining("Connection refused");
     }

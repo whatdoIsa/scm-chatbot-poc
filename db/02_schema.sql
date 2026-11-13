@@ -58,7 +58,12 @@ CREATE TABLE app.chat_log (
   completion_tokens integer NOT NULL DEFAULT 0,
   elapsed_ms integer NOT NULL,
   error_message text,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  route varchar(16),
+  tool_name varchar(32),
+  tool_args text,
+  answer_text text,
+  answer_status varchar(16)
 );
 CREATE TABLE app.eval_run (
   id bigserial PRIMARY KEY,
@@ -76,7 +81,8 @@ CREATE TABLE app.eval_run (
   sql_exec_success_rate numeric(5,4),
   format_ok_rate numeric(5,4),
   avg_elapsed_ms integer,
-  note text
+  note text,
+  answer_verified_rate numeric(5,4)
 );
 CREATE TABLE app.eval_result (
   id bigserial PRIMARY KEY,
@@ -94,5 +100,10 @@ CREATE TABLE app.eval_result (
   completion_tokens integer NOT NULL DEFAULT 0,
   elapsed_ms integer NOT NULL,
   detail text,
+  route varchar(16),
+  tool_name varchar(32),
+  tool_args text,
+  answer_text text,
+  answer_status varchar(16),
   UNIQUE (run_id, question_id)
 );

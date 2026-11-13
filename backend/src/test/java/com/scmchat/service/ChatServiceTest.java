@@ -9,6 +9,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.scmchat.answer.AnswerStatus;
+import com.scmchat.answer.NumberVerifier;
 import com.scmchat.config.ChatProperties;
 import com.scmchat.entity.ChatLog;
 import com.scmchat.executor.QueryResult;
@@ -368,7 +370,8 @@ class ChatServiceTest {
         ToolCall expectedCall = new ToolCall(ToolName.DAYS_OF_SUPPLY, ToolOutput.VALUE, "SKU-007", "서울센터",
                 null, null, null, null, null);
         when(toolExecutor.execute(expectedCall)).thenReturn(rows);
-        ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply(ROUTE_DAYS_OF_SUPPLY, 900, 40));
+        ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply(ROUTE_DAYS_OF_SUPPLY, 900, 40),
+                new LlmReply("{\"answer\":\"서울센터 SKU-007의 재고보유일수는 12.5일입니다.\"}", 150, 25));
 
         ChatResult result = serviceWith(scripted).answer("서울센터 SKU-7의 재고보유일수는?", PromptVersion.V3);
 
@@ -382,9 +385,15 @@ class ChatServiceTest {
         assertThat(result.result()).isEqualTo(rows);
         assertThat(result.sql()).isNull();
         assertThat(result.promptVersion()).isEqualTo(PromptVersion.V3);
-        assertThat(result.attempts()).isEqualTo(1);
-        assertThat(result.promptTokens()).isEqualTo(900);
-        assertThat(scripted.formats).containsExactly(OutputFormat.ROUTE);
+        assertThat(result.attempts()).isEqualTo(2);
+        assertThat(result.promptTokens()).isEqualTo(1050);
+        assertThat(result.completionTokens()).isEqualTo(65);
+        assertThat(scripted.formats).containsExactly(OutputFormat.ROUTE, OutputFormat.ANSWER);
+        assertThat(result.answerStatus()).isEqualTo(AnswerStatus.VERIFIED);
+        assertThat(result.answerText()).isEqualTo("서울센터 SKU-007의 재고보유일수는 12.5일입니다.");
+        // 답변 단계는 질문과 결과 표만 받는다.
+        assertThat(scripted.requests.get(1).get(1).content())
+                .isEqualTo("Question: 서울센터 SKU-7의 재고보유일수는?\nColumns: days_of_supply\nRows:\n12.5");
         verify(executor, never()).execute(any());
 
         ChatLog saved = savedChatLog();
@@ -396,6 +405,8 @@ class ChatServiceTest {
         assertThat(saved.getGeneratedSql()).isNull();
         assertThat(saved.getRowCount()).isEqualTo(1);
         assertThat(saved.getErrorMessage()).isNull();
+        assertThat(saved.getAnswerStatus()).isEqualTo("VERIFIED");
+        assertThat(saved.getAnswerText()).isEqualTo("서울센터 SKU-007의 재고보유일수는 12.5일입니다.");
     }
 
     @Test
@@ -452,7 +463,7 @@ class ChatServiceTest {
         ChatService stubbed = new ChatService(new PromptBuilder(properties),
                 new ScriptedLlmClient(new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0)), new LlmOutputParser(),
                 new SqlValidator(properties), executor, new ToolArgsValidator(databaseDown, properties), toolExecutor,
-                chatLogRepository, properties);
+                new NumberVerifier(), chatLogRepository, properties);
 
         ChatResult result = stubbed.answer(QUESTION, PromptVersion.V3);
 
@@ -471,7 +482,8 @@ class ChatServiceTest {
         QueryResult rows = new QueryResult(List.of("qty"), List.of(List.of(31)), false);
         when(executor.execute("SELECT qty FROM sales_daily LIMIT 200")).thenReturn(rows);
         ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply(ROUTE_SQL, 800, 30),
-                new LlmReply("{\"action\":\"sql\",\"sql\":\"SELECT qty FROM sales_daily\",\"message\":\"\"}", 2000, 60));
+                new LlmReply("{\"action\":\"sql\",\"sql\":\"SELECT qty FROM sales_daily\",\"message\":\"\"}", 2000, 60),
+                new LlmReply("{\"answer\":\"판매량은 31개입니다.\"}", 0, 0));
         ChatService stubbed = serviceWith(scripted);
 
         ChatResult result = stubbed.answer(QUESTION, PromptVersion.V3);
@@ -482,10 +494,11 @@ class ChatServiceTest {
         assertThat(result.toolName()).isNull();
         assertThat(result.sql()).isEqualTo("SELECT qty FROM sales_daily LIMIT 200");
         assertThat(result.result()).isEqualTo(rows);
-        assertThat(result.attempts()).isEqualTo(2);
+        assertThat(result.attempts()).isEqualTo(3);
         assertThat(result.promptTokens()).isEqualTo(2800);
         assertThat(result.completionTokens()).isEqualTo(90);
-        assertThat(scripted.formats).containsExactly(OutputFormat.ROUTE, OutputFormat.ACTION);
+        assertThat(scripted.formats).containsExactly(OutputFormat.ROUTE, OutputFormat.ACTION, OutputFormat.ANSWER);
+        assertThat(result.answerStatus()).isEqualTo(AnswerStatus.VERIFIED);
         // SQL 단계에 보내는 메시지는 v1 측정 때의 프롬프트와 같다.
         assertThat(scripted.requests.get(1))
                 .isEqualTo(new PromptBuilder(properties()).build(PromptVersion.V1, QUESTION));
@@ -517,14 +530,16 @@ class ChatServiceTest {
         when(executor.execute("SELECT on_hand FROM inventory_daily LIMIT 200")).thenReturn(rows);
         ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply(ROUTE_SQL, 0, 0),
                 new LlmReply("{\"action\":\"sql\",\"sql\":\"SELECT stock FROM inventory_daily\",\"message\":\"\"}", 0, 0),
-                new LlmReply("{\"action\":\"sql\",\"sql\":\"SELECT on_hand FROM inventory_daily\",\"message\":\"\"}", 0, 0));
+                new LlmReply("{\"action\":\"sql\",\"sql\":\"SELECT on_hand FROM inventory_daily\",\"message\":\"\"}", 0, 0),
+                new LlmReply("{\"answer\":\"현재 재고는 120개입니다.\"}", 0, 0));
 
         ChatResult result = serviceWith(scripted).answer(QUESTION, PromptVersion.V3);
 
         assertThat(result.status()).isEqualTo(ChatStatus.OK);
         assertThat(result.result()).isEqualTo(rows);
-        assertThat(result.attempts()).isEqualTo(3);
-        assertThat(scripted.formats).containsExactly(OutputFormat.ROUTE, OutputFormat.ACTION, OutputFormat.ACTION);
+        assertThat(result.attempts()).isEqualTo(4);
+        assertThat(scripted.formats).containsExactly(
+                OutputFormat.ROUTE, OutputFormat.ACTION, OutputFormat.ACTION, OutputFormat.ANSWER);
         assertThat(scripted.requests.get(2).get(3).content()).contains("column \"stock\" does not exist");
     }
 
@@ -610,6 +625,119 @@ class ChatServiceTest {
         assertThat(sqlDown.attempts()).isEqualTo(2);
     }
 
+    @Test
+    void v3KeepsARejectedAnswerOutOfReachButLogsIt() {
+        QueryResult rows = new QueryResult(List.of("days_of_supply"), List.of(List.<Object>of(12.5)), false);
+        when(toolExecutor.execute(any())).thenReturn(rows);
+        ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0),
+                new LlmReply("{\"answer\":\"재고보유일수는 약 13일로, 2주 안에 소진됩니다.\"}", 0, 0));
+
+        ChatResult result = serviceWith(scripted).answer(QUESTION, PromptVersion.V3);
+
+        // 12.5는 13으로 반올림할 수 있지만 2(주)는 결과에 없는 숫자다.
+        assertThat(result.status()).isEqualTo(ChatStatus.OK);
+        assertThat(result.result()).isEqualTo(rows);
+        assertThat(result.answerStatus()).isEqualTo(AnswerStatus.REJECTED);
+        assertThat(result.answerText()).isEqualTo("재고보유일수는 약 13일로, 2주 안에 소진됩니다.");
+        ChatLog saved = savedChatLog();
+        assertThat(saved.getStatus()).isEqualTo("OK");
+        assertThat(saved.getAnswerStatus()).isEqualTo("REJECTED");
+        assertThat(saved.getAnswerText()).contains("2주 안에 소진");
+        assertThat(saved.getErrorMessage()).isNull();
+    }
+
+    @Test
+    void v3SkipsTheAnswerForEmptyTooLongOrTruncatedResults() {
+        QueryResult empty = new QueryResult(List.of("sku"), List.of(), false);
+        QueryResult tooLong = new QueryResult(List.of("sku"), java.util.Collections.nCopies(21, List.<Object>of("x")), false);
+        QueryResult truncated = new QueryResult(List.of("sku"), java.util.Collections.nCopies(5, List.<Object>of("x")), true);
+        QueryResult atLimit = new QueryResult(List.of("sku"), java.util.Collections.nCopies(20, List.<Object>of("x")), false);
+        when(toolExecutor.execute(any())).thenReturn(empty, tooLong, truncated, atLimit);
+        ScriptedLlmClient scripted = new ScriptedLlmClient(
+                new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0), new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0),
+                new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0), new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0),
+                new LlmReply("{\"answer\":\"해당 품목은 x입니다.\"}", 0, 0));
+        ChatService stubbed = serviceWith(scripted);
+
+        for (QueryResult skipped : List.of(empty, tooLong, truncated)) {
+            ChatResult result = stubbed.answer(QUESTION, PromptVersion.V3);
+
+            assertThat(result.result()).isEqualTo(skipped);
+            assertThat(result.answerStatus()).isEqualTo(AnswerStatus.SKIPPED);
+            assertThat(result.answerText()).isNull();
+            assertThat(result.attempts()).isEqualTo(1);
+        }
+        ChatResult answered = stubbed.answer(QUESTION, PromptVersion.V3);
+
+        assertThat(answered.answerStatus()).isEqualTo(AnswerStatus.VERIFIED);
+        assertThat(answered.attempts()).isEqualTo(2);
+        assertThat(scripted.formats).containsExactly(OutputFormat.ROUTE, OutputFormat.ROUTE, OutputFormat.ROUTE,
+                OutputFormat.ROUTE, OutputFormat.ANSWER);
+    }
+
+    @Test
+    void v3KeepsTheQueryResultWhenTheAnswerCallFailsOrIsMalformed() {
+        QueryResult rows = new QueryResult(List.of("days_of_supply"), List.of(List.<Object>of(12.5)), false);
+        when(toolExecutor.execute(any())).thenReturn(rows);
+        LlmClient answerDown = new LlmClient() {
+            @Override
+            public LlmReply generate(List<LlmMessage> messages, OutputFormat format) {
+                if (format == OutputFormat.ANSWER) {
+                    throw new LlmUnavailableException("Ollama call failed: Read timed out", null);
+                }
+                return new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0);
+            }
+
+            @Override
+            public String modelName() {
+                return "flaky";
+            }
+        };
+
+        ChatResult down = serviceWith(answerDown).answer(QUESTION, PromptVersion.V3);
+        ChatResult malformed = serviceWith(new ScriptedLlmClient(new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0),
+                new LlmReply("재고보유일수는 12.5일입니다.", 0, 0))).answer(QUESTION, PromptVersion.V3);
+        ChatResult blank = serviceWith(new ScriptedLlmClient(new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0),
+                new LlmReply("{\"answer\":\"\"}", 0, 0))).answer(QUESTION, PromptVersion.V3);
+
+        for (ChatResult result : List.of(down, malformed, blank)) {
+            assertThat(result.status()).isEqualTo(ChatStatus.OK);
+            assertThat(result.action()).isEqualTo(Action.TOOL);
+            assertThat(result.result()).isEqualTo(rows);
+            assertThat(result.answerStatus()).isEqualTo(AnswerStatus.SKIPPED);
+            assertThat(result.answerText()).isNull();
+            assertThat(result.attempts()).isEqualTo(2);
+        }
+    }
+
+    @Test
+    void v3HasNoAnswerStatusWithoutAQueryResult() {
+        ScriptedLlmClient scripted = new ScriptedLlmClient(
+                new LlmReply("{\"route\":\"clarify\",\"message\":\"어느 품목의 재고인가요?\"}", 0, 0),
+                new LlmReply("{\"route\":\"tool\",\"tool\":\"days_of_supply\",\"location\":\"서울\",\"output\":\"value\"}", 0, 0));
+        ChatService stubbed = serviceWith(scripted);
+
+        assertThat(stubbed.answer("재고 어때?", PromptVersion.V3).answerStatus()).isNull();
+        assertThat(stubbed.answer("서울 재고보유일수는?", PromptVersion.V3).answerStatus()).isNull();
+        assertThat(scripted.formats).containsExactly(OutputFormat.ROUTE, OutputFormat.ROUTE);
+    }
+
+    @Test
+    void v0ToV2NeverWriteAnAnswer() {
+        when(executor.execute("SELECT on_hand FROM inventory_daily"))
+                .thenReturn(new QueryResult(List.of("on_hand"), List.of(List.of(120)), false));
+        ScriptedLlmClient scripted = new ScriptedLlmClient(
+                new LlmReply("{\"action\":\"sql\",\"sql\":\"SELECT on_hand FROM inventory_daily\",\"message\":\"\"}", 0, 0));
+
+        ChatResult result = serviceWith(scripted).answer(QUESTION, PromptVersion.V1);
+
+        assertThat(result.answerStatus()).isNull();
+        assertThat(result.answerText()).isNull();
+        assertThat(result.attempts()).isEqualTo(1);
+        assertThat(scripted.formats).containsExactly(OutputFormat.ACTION);
+        assertThat(savedChatLog().getAnswerStatus()).isNull();
+    }
+
     private ChatLog savedChatLog() {
         ArgumentCaptor<ChatLog> captor = ArgumentCaptor.forClass(ChatLog.class);
         verify(chatLogRepository, times(1)).save(captor.capture());
@@ -621,14 +749,14 @@ class ChatServiceTest {
                 "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
         // Gradle은 backend/를 작업 디렉터리로 테스트를 실행한다.
         return new ChatProperties(
-                "v0", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, "../prompts", llm);
+                "v0", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, 20, "../prompts", llm);
     }
 
     private ChatService serviceWith(LlmClient llmClient) {
         ChatProperties properties = properties();
         return new ChatService(new PromptBuilder(properties), llmClient, new LlmOutputParser(),
                 new SqlValidator(properties), executor, new ToolArgsValidator(DIMENSIONS, properties), toolExecutor,
-                chatLogRepository, properties);
+                new NumberVerifier(), chatLogRepository, properties);
     }
 
     /** 정해 둔 응답을 순서대로 돌려주고 받은 메시지를 기록한다. */

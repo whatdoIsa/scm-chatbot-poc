@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.scmchat.config.ChatProperties;
+import com.scmchat.executor.QueryResult;
 import com.scmchat.llm.LlmMessage;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -173,7 +174,7 @@ class PromptBuilderTest {
     void rejectsUnknownConfiguredVersionAtStartup() {
         ChatProperties.Llm llm = new ChatProperties.Llm(
                 "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
-        ChatProperties properties = new ChatProperties("v9", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, "../prompts", llm);
+        ChatProperties properties = new ChatProperties("v9", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, 20, "../prompts", llm);
 
         assertThatThrownBy(() -> new PromptBuilder(properties)).isInstanceOf(IllegalArgumentException.class);
     }
@@ -216,7 +217,28 @@ class PromptBuilderTest {
                 "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
 
         new PromptBuilder(new ChatProperties(
-                "v3", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, "../prompts", llm));
+                "v3", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, 20, "../prompts", llm));
+    }
+
+    @Test
+    void answerPromptCarriesTheQuestionAndTheResultTable() {
+        QueryResult result = new QueryResult(List.of("sku", "days_of_supply", "week_start"), List.of(
+                java.util.Arrays.asList("SKU-033", new java.math.BigDecimal("4.8720000000"), LocalDate.of(2026, 11, 2)),
+                java.util.Arrays.asList("SKU-040", new java.math.BigDecimal("1E+1"), null)), false);
+
+        List<LlmMessage> messages = builder.buildAnswer("재고보유일수가 짧은 품목은?", result);
+
+        assertThat(messages).hasSize(2);
+        assertThat(messages.get(0).role()).isEqualTo("system");
+        assertThat(messages.get(0).content())
+                .contains("The as-of date (\"today\") is 2026-11-08.", "\"answer\"")
+                .doesNotContain("{{", "CREATE TABLE");
+        assertThat(messages.get(1)).isEqualTo(LlmMessage.user("""
+                Question: 재고보유일수가 짧은 품목은?
+                Columns: sku, days_of_supply, week_start
+                Rows:
+                SKU-033 | 4.8720000000 | 2026-11-02
+                SKU-040 | 10 | null"""));
     }
 
     @Test
@@ -231,6 +253,6 @@ class PromptBuilderTest {
         ChatProperties.Llm llm = new ChatProperties.Llm(
                 "fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120);
         return new PromptBuilder(new ChatProperties(
-                "v0", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, promptsDir.toString(), llm));
+                "v0", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, 20, promptsDir.toString(), llm));
     }
 }

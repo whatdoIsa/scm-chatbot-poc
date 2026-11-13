@@ -68,6 +68,12 @@ public class ChatLog {
     @Column(name = "tool_args", columnDefinition = "text")
     private String toolArgs;
 
+    @Column(name = "answer_text", columnDefinition = "text")
+    private String answerText;
+
+    @Column(name = "answer_status", length = 16)
+    private String answerStatus;
+
     protected ChatLog() {
     }
 
@@ -105,6 +111,20 @@ public class ChatLog {
 
     public String getToolArgs() {
         return toolArgs;
+    }
+
+    /** v3 답변 문장 원문과 후검증 결과. 문장은 검증에 실패해도 남긴다. */
+    public void recordAnswer(String answerText, String answerStatus) {
+        this.answerText = answerText;
+        this.answerStatus = answerStatus;
+    }
+
+    public String getAnswerText() {
+        return answerText;
+    }
+
+    public String getAnswerStatus() {
+        return answerStatus;
     }
 
     @PrePersist

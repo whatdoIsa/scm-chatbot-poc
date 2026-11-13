@@ -94,6 +94,32 @@ class EntityPersistenceIT {
     }
 
     @Test
+    void savesAnswerTextStatusAndVerifiedRate() {
+        ChatLog chatLog = new ChatLog("SKU-007의 현재 재고는?", "v3", "qwen2.5-coder:7b", "sql", "OK",
+                "SELECT 1", 1, 3, 4000, 90, 9000, null);
+        chatLog.recordAnswer("SKU-007의 현재 재고는 300개입니다.", "REJECTED");
+        chatLog = chatLogRepository.save(chatLog);
+        EvalRun run = new EvalRun(
+                "v3", "qwen2.5-coder:7b", new BigDecimal("0.00"), 42, 1, "c".repeat(64), OffsetDateTime.now());
+        run.recordAnswerVerifiedRate(new BigDecimal("0.8750"));
+        run = evalRunRepository.save(run);
+        EvalResult result = new EvalResult(
+                run, "Q01", "SIMPLE_LOOKUP", "sql", "sql", "SELECT 1", true, null, "OK", 3, 4000, 90, 9000, null);
+        result.recordAnswer("SKU-007의 현재 재고는 284개입니다.", "VERIFIED");
+        result = evalResultRepository.save(result);
+        flushAndClear();
+
+        ChatLog foundLog = chatLogRepository.findById(chatLog.getId()).orElseThrow();
+        EvalResult foundResult = evalResultRepository.findById(result.getId()).orElseThrow();
+
+        assertThat(foundLog.getAnswerStatus()).isEqualTo("REJECTED");
+        assertThat(foundLog.getAnswerText()).contains("300개");
+        assertThat(foundResult.getAnswerStatus()).isEqualTo("VERIFIED");
+        assertThat(foundResult.getAnswerText()).contains("284개");
+        assertThat(foundResult.getRun().getAnswerVerifiedRate()).isEqualByComparingTo("0.875");
+    }
+
+    @Test
     void leavesRouteColumnsNullWhenNotRouted() {
         ChatLog saved = chatLogRepository.save(new ChatLog(
                 "SKU-007의 현재 재고는?", "v1", "qwen2.5-coder:7b", "sql", "OK", "SELECT 1", 1, 1, 120, 30, 850, null));

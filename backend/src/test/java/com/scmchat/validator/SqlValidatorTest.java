@@ -11,7 +11,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 class SqlValidatorTest {
 
     private final SqlValidator validator = new SqlValidator(new ChatProperties(
-            "v2", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, "../prompts",
+            "v2", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, 20, "../prompts",
             new ChatProperties.Llm("fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120)));
 
     @ParameterizedTest

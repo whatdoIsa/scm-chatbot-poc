@@ -29,7 +29,7 @@ class ToolExecutorTest {
 
     private final MetricToolMapper mapper = mock(MetricToolMapper.class);
     private final ToolExecutor executor = new ToolExecutor(mapper, new ChatProperties(
-            "v3", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, LIST_LIMIT, "../prompts",
+            "v3", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, LIST_LIMIT, 20, "../prompts",
             new ChatProperties.Llm("fake", "http://localhost:11434", "qwen2.5-coder:7b", 0, 42, 8192, 120)));
 
     @Test

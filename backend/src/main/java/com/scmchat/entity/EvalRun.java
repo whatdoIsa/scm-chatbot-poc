@@ -61,6 +61,9 @@ public class EvalRun {
     @Column(name = "avg_elapsed_ms")
     private Integer avgElapsedMs;
 
+    @Column(name = "answer_verified_rate", precision = 5, scale = 4)
+    private BigDecimal answerVerifiedRate;
+
     @Column(columnDefinition = "text")
     private String note;
 
@@ -88,6 +91,15 @@ public class EvalRun {
         this.sqlExecSuccessRate = sqlExecSuccessRate;
         this.formatOkRate = formatOkRate;
         this.avgElapsedMs = avgElapsedMs;
+    }
+
+    /** v3: VERIFIED / (VERIFIED + REJECTED). 검증한 문장이 없으면 null. */
+    public void recordAnswerVerifiedRate(BigDecimal answerVerifiedRate) {
+        this.answerVerifiedRate = answerVerifiedRate;
+    }
+
+    public BigDecimal getAnswerVerifiedRate() {
+        return answerVerifiedRate;
     }
 
     public Long getId() {

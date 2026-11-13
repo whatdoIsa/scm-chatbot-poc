@@ -37,7 +37,9 @@ public class SqlValidator {
     private static final Pattern FORBIDDEN_NAME = Pattern.compile(
             "\\b(pg_\\w*|set_config|current_setting|dblink\\w*|lo_\\w+|copy|information_schema|\\w+_to_xml\\w*|"
                     + "current_user|session_user|current_role|current_database|current_catalog|current_schema\\w*)\\b");
-    private static final Pattern AMBIGUOUS_STRING = Pattern.compile("[$\\\\]|\\b(e|b|x|n|u&)['\"]", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DOLLAR_OR_BACKSLASH = Pattern.compile("[$\\\\]");
+    /** 일반 문자열을 ''로 지운 뒤에도 따옴표 바로 앞에 붙어 있는 글자. E'..', B'..', X'..', N'..', U&'..' 표기다. */
+    private static final Pattern STRING_PREFIX = Pattern.compile("\\b(e|b|x|n|u&)['\"]");
     private static final Pattern CALL = Pattern.compile("([\\p{L}\\p{N}_]+)\\s*\\(");
     private static final Set<String> ALLOWED_BEFORE_PAREN = Set.of(
             // 괄호 앞에 올 수 있는 SQL 키워드와 타입
@@ -69,10 +71,15 @@ public class SqlValidator {
         if (sql == null || sql.isBlank()) {
             return ValidationResult.rejected(sql, "SQL is empty");
         }
-        if (AMBIGUOUS_STRING.matcher(sql).find()) {
+        if (DOLLAR_OR_BACKSLASH.matcher(sql).find()) {
             return ValidationResult.rejected(sql, "dollar quotes, backslashes, and prefixed strings are not allowed");
         }
         String scanned = STRING_LITERAL.matcher(sql).replaceAll("''").toLowerCase(Locale.ROOT);
+        // 접두 문자열은 문자열을 지운 뒤에 찾는다. 원문에서 찾으면 'B'처럼 한 글자 문자열의 닫는 따옴표에 걸린다.
+        // 역슬래시와 달러 인용은 위에서 이미 걸렀으므로 여기서 문자열 경계는 PostgreSQL이 읽는 것과 같다.
+        if (STRING_PREFIX.matcher(scanned).find()) {
+            return ValidationResult.rejected(sql, "dollar quotes, backslashes, and prefixed strings are not allowed");
+        }
         if (COMMENT.matcher(scanned).find()) {
             return ValidationResult.rejected(sql, "comments are not allowed");
         }

@@ -150,4 +150,36 @@ class SqlValidatorTest {
         assertThat(validator.validate("SELECT region FROM location UNION SELECT category FROM product").sql())
                 .endsWith("LIMIT 200");
     }
+
+    /** 닫는 따옴표 앞의 한 글자를 접두 문자열(E'..', B'..')로 보고 거부하던 오탐. */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SELECT sku FROM product WHERE abc_class = 'B' AND category = '음료'",
+            "SELECT sku FROM product WHERE abc_class = 'B'",
+            "SELECT sku FROM product WHERE name = 'E' OR name = 'N' OR name = 'X'",
+            "SELECT sku FROM product WHERE abc_class IN ('A', 'B', 'C')",
+            "SELECT sku FROM product WHERE name = 'x b' AND category = '음료'"
+    })
+    void acceptsSingleLetterStringLiterals(String sql) {
+        ValidationResult result = validator.validate(sql);
+
+        assertThat(result.reason()).isNull();
+        assertThat(result.ok()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SELECT sku FROM product WHERE name = E'a'",
+            "SELECT sku FROM product WHERE name = b'0101'",
+            "SELECT sku FROM product WHERE name = X'1F'",
+            "SELECT sku FROM product WHERE name = N'a'",
+            "SELECT sku FROM product WHERE name = U&'d'",
+            "SELECT sku FROM product WHERE abc_class = 'B' AND name = E'a'"
+    })
+    void stillRejectsPrefixedStrings(String sql) {
+        ValidationResult result = validator.validate(sql);
+
+        assertThat(result.ok()).isFalse();
+        assertThat(result.reason()).contains("prefixed strings");
+    }
 }

@@ -74,18 +74,18 @@ function ToolCall({ tool }: { tool: ToolInfo }) {
   )
 }
 
-/** 문장은 숫자가 조회 결과에서 확인된 것만 온다. 확인은 숫자의 출처만 보므로 "검증된 답"이라고 부르지 않는다. */
+/** 문장은 숫자의 출처가 확인된 것만 온다. 확인은 출처만 보고 뜻은 보지 않으므로 "검증된 답"이라고 부르지 않는다. */
 function AnswerSentence({ response }: { response: ChatResponse }) {
   if (response.answerStatus === 'VERIFIED' && response.answer) {
     return (
       <div className="sentence">
         <p>{response.answer}</p>
-        <p className="muted small">문장의 숫자는 아래 조회 결과에 있는 값입니다.</p>
+        <p className="muted small">문장의 숫자가 조회 결과나 질문에 있는 값인지만 확인했습니다. 내용이 맞는지는 표로 확인해 주세요.</p>
       </div>
     )
   }
   if (response.answerStatus === 'REJECTED') {
-    return <p className="muted small">답변 문장의 숫자가 조회 결과와 맞지 않아 표만 보여 드립니다.</p>
+    return <p className="muted small">답변 문장에 조회 결과에서 확인되지 않는 숫자가 있어 표만 보여 드립니다.</p>
   }
   return null
 }

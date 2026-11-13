@@ -538,7 +538,7 @@ v0~v2의 요청·응답·LLM 호출 본문은 바뀌지 않는다. 아래는 `pr
 | `prompts/v3_answer.txt` | 답변 문장 system 메시지 | `{{AS_OF_DATE}}` |
 | `prompts/v1.txt` | v3의 SQL 생성 단계. 파일과 렌더링 결과 모두 v1과 같다 | 4.1 |
 
-- 라우터의 user 메시지는 질문 원문이다. 라우터 프롬프트에는 DDL을 넣지 않고, 테이블이 담는 데이터의 요약과 데이터 기간, 도구 목록, 경로 선택 규칙을 넣는다.
+- 라우터의 user 메시지는 질문 원문이다. 라우터 프롬프트에는 DDL을 넣지 않고, 테이블이 담는 데이터의 요약(거점 이름 5개 포함, PRD 5.5), 기간 규칙, 도구 목록과 인자 설명, 경로 선택 규칙을 넣는다. 도구가 표현하지 못하는 질문의 목록은 PRD 10.4의 문장을 옮긴 것이다.
 - 답변 단계의 user 메시지는 질문, 결과 컬럼명, 결과 행을 담는다.
 
 ```
@@ -650,13 +650,17 @@ answer_verified_rate numeric(5,4)
 | prompt | `PromptVersion` | `V3("v3")` 추가 |
 | prompt | `PromptBuilder` | `List<LlmMessage> buildRouter(String question)`, `List<LlmMessage> buildAnswer(String question, QueryResult result)` 추가. `build(V3, …)`은 지원하지 않는다(SQL 단계는 `build(V1, …)`) |
 | service | `ChatStatus` | `TOOL_REJECTED` 추가 |
-| service | `ChatResult` | `Route route, ToolCall toolCall, String toolArgsJson, String answer, AnswerStatus answerStatus` 추가 |
+| service | `ChatResult` | `Route route, String toolName, Map<String, Object> toolArgs` 추가(T14). `String answer, AnswerStatus answerStatus`는 T15에서 추가. v0~v2용 12개 인자 생성자는 그대로 둔다 |
+| tool | `ToolCall.toArgsMap()`, `RawToolArgs.toArgsMap()`, `ToolArgsJson.write(Map)` | 응답의 `tool.args`와 `tool_args` 컬럼에 쓸 인자. 키는 라우터 출력과 같고 쓰지 않는 인자는 뺀다 |
+| dto | `ChatResponse` | `Route route, ToolInfo tool` 추가. `ToolInfo(String name, Map<String, Object> args)` |
+| entity | `ChatLog`, `EvalResult` | `recordRoute(String route, String toolName, String toolArgs)`와 getter. 생성자는 그대로 둔다 |
+| prompt | `FewShotLoader` | `static FewShotLoader forRouter(Path file)` 추가. 예시의 output을 `parseRoute`로 검사한다 |
 | eval | `ErrorType` | `TOOL_SELECTION`, `TOOL_ARGUMENT` 추가 |
 | eval | `Grader` | 정답이 sql인 문항은 action이 `sql`·`tool` 모두 결과 비교로 채점. `TOOL_REJECTED`는 `TOOL_ARGUMENT` |
 | mapper | `EvalSummaryMapper` | `List<RouteSummaryRow> routeSummaries(long runId)` 추가 |
 
 - `OllamaLlmClient`는 `format.schema()`를 요청의 `format`에 넣는다. `ACTION`의 요청 본문은 v0~v2 측정 때와 바이트 단위로 같아야 하며 테스트로 고정한다.
-- `FakeLlmClient`는 format과 무관하게 큐의 응답을 순서대로 돌려준다.
+- `FakeLlmClient`는 format과 무관하게 큐의 응답을 순서대로 돌려준다. 큐가 비면 format에 맞는 기본 응답을 준다(`ACTION`은 기존 기본 응답, `ROUTE`는 `{"route":"clarify","message":"fake"}`, `ANSWER`는 빈 문장).
 - `OracleLlmClient`: `ROUTE`에는 정답 action에 맞춘 route(`sql`·`clarify`·`refuse`)를, `ACTION`에는 기존과 같은 응답을, `ANSWER`에는 빈 문장을 돌려준다. 그래서 oracle의 v3 평가는 SQL 경로만 지나가고 답변은 `SKIPPED`다. 도구의 정확성은 `MetricToolIT`가 확인한다.
 
 ### 8.7 설정 키 추가

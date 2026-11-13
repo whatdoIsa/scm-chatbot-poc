@@ -138,7 +138,7 @@ class ChatServiceIT {
         assertThat(result.toolName()).isEqualTo("days_of_supply");
         assertThat(result.toolArgs()).containsEntry("sku", "SKU-007").containsEntry("location", "서울센터");
         assertThat(result.sql()).isNull();
-        assertThat(result.result().columns()).containsExactly("on_hand", "avg_daily_qty", "days_of_supply");
+        assertThat(result.result().columns()).containsExactly("days_of_supply");
         assertThat(result.result().rows()).hasSize(1);
         assertThat(result.attempts()).isEqualTo(1);
 
@@ -167,6 +167,21 @@ class ChatServiceIT {
         assertThat(saved.getStatus()).isEqualTo("TOOL_REJECTED");
         assertThat(saved.getToolArgs()).isEqualTo("{\"location\":\"인천센터\",\"output\":\"value\"}");
         assertThat(saved.getErrorMessage()).contains("unknown location");
+    }
+
+    /** 출력 스키마를 강제하지 않는 provider는 enum 밖의 긴 도구 이름을 낼 수 있다. 그래도 로그 한 행은 남아야 한다. */
+    @Test
+    void v3LogsARejectedCallWhoseToolNameIsLongerThanTheColumn() {
+        String longName = "inventory_turnover_by_category_and_region_with_trend";
+        fakeLlm.enqueue("{\"route\":\"tool\",\"tool\":\"" + longName + "\",\"output\":\"value\"}");
+
+        ChatResult result = chatService.answer("카테고리별 재고회전율 추이는?", PromptVersion.V3);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.TOOL_REJECTED);
+        assertThat(result.message()).contains("unknown tool: " + longName);
+        ChatLog saved = chatLogRepository.findById(result.chatLogId()).orElseThrow();
+        assertThat(saved.getToolName()).isEqualTo(longName.substring(0, 32));
+        assertThat(result.toolName()).isEqualTo(saved.getToolName());
     }
 
     @Test

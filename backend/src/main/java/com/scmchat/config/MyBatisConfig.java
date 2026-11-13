@@ -39,8 +39,10 @@ public class MyBatisConfig {
             throws Exception {
         org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration();
         configuration.setDefaultStatementTimeout(SCM_RO_STATEMENT_TIMEOUT_SECONDS);
-        // 지표 값이 NULL이어도(분모 0) 결과 맵에 컬럼이 남게 한다.
+        // 지표 값이 NULL이어도(분모 0, 대상 없음) 행과 컬럼이 남게 한다. 기본 설정은 NULL 컬럼을 맵에서 빼고,
+        // 모든 컬럼이 NULL인 행은 행 자체를 null로 돌려준다.
         configuration.setCallSettersOnNulls(true);
+        configuration.setReturnInstanceForEmptyRow(true);
 
         SqlSessionFactoryBean factory = new SqlSessionFactoryBean();
         factory.setDataSource(scmRoDataSource);

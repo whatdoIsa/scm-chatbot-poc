@@ -21,11 +21,11 @@ Tools. Each tool is a fixed query that computes one metric exactly as defined:
 Tool arguments:
 - "sku": one item such as SKU-007 (write SKU-7 as SKU-007), or "" for all items.
 - "location": one location name exactly as stored, such as 서울센터, or "" for all locations.
-- "days": N of "최근 N일" for avg_daily_sales, otherwise 0.
+- "days": N of "최근 N일" for avg_daily_sales (1 to 91), otherwise 0.
 - "start_date", "end_date": the period for stockout_rate as yyyy-MM-dd. Set both to "" when the question gives no period, and for every other tool.
 - "output":
   - "value": one number for the given sku and location (for everything when both are "").
-  - "ranking": the top items ordered by the metric. Set "top_n" to the number of items asked for and "order" to "asc" (lowest first) or "desc" (highest first). "sku" must be "".
+  - "ranking": the top items ordered by the metric. Set "top_n" to the number of items asked for (1 to 50) and "order" to "asc" (lowest first) or "desc" (highest first). "sku" must be "".
   - "list": the SKU-location pairs that meet the condition.
   - "count": the number of SKU-location pairs that meet the condition.
 - Set "top_n" to 0 and "order" to "" unless "output" is "ranking".

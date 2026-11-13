@@ -204,7 +204,7 @@ class PromptBuilderTest {
     }
 
     @Test
-    void v3HasNoSinglePromptAndItsSqlStageIsTheV1Prompt() {
+    void v3HasNoSinglePrompt() {
         assertThatThrownBy(() -> builder.build(PromptVersion.V3, QUESTION))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("buildRouter");

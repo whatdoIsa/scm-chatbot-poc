@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 /**
  * 라우터가 낸 도구 호출을 API_SPEC 8.4의 규칙으로 검증하고 정규화한다.
  * 하나라도 어기면 거부한다. 그 도구가 쓰지 않는 인자는 값이 있어도 무시한다.
+ * 품목·거점 조회가 DB 오류로 실패하면 거부가 아니라 SqlExecutionException이 그대로 나간다.
  */
 @Component
 public class ToolArgsValidator {
@@ -112,7 +114,7 @@ public class ToolArgsValidator {
         if (!matcher.matches()) {
             throw new Rejection("sku must look like SKU-007: " + value);
         }
-        String normalized = String.format("SKU-%03d", Integer.parseInt(matcher.group(1)));
+        String normalized = String.format(Locale.ROOT, "SKU-%03d", Integer.parseInt(matcher.group(1)));
         if (!dimensions.skuExists(normalized)) {
             throw new Rejection("unknown sku: " + normalized);
         }

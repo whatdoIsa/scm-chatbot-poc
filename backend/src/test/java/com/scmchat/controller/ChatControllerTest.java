@@ -98,8 +98,8 @@ class ChatControllerTest {
 
     @Test
     void returnsToolResultWithRouteAndToolCall() throws Exception {
-        QueryResult rows = new QueryResult(List.of("on_hand", "avg_daily_qty", "days_of_supply"),
-                List.of(List.<Object>of(120, new BigDecimal("9.6071"), new BigDecimal("12.4907"))), false);
+        QueryResult rows = new QueryResult(List.of("days_of_supply"),
+                List.of(List.<Object>of(new BigDecimal("12.4907"))), false);
         java.util.Map<String, Object> args = new java.util.LinkedHashMap<>();
         args.put("sku", "SKU-026");
         args.put("location", "서울센터");
@@ -113,8 +113,8 @@ class ChatControllerTest {
                 .andExpect(content().json("""
                         {
                           "action": "tool", "status": "OK", "message": null, "sql": null,
-                          "columns": ["on_hand", "avg_daily_qty", "days_of_supply"],
-                          "rows": [[120, 9.6071, 12.4907]],
+                          "columns": ["days_of_supply"],
+                          "rows": [[12.4907]],
                           "rowCount": 1, "truncated": false,
                           "asOfDate": "2026-11-08", "promptVersion": "v3", "model": "qwen2.5-coder:7b",
                           "attempts": 1, "elapsedMs": 3100, "chatLogId": 77,
@@ -141,6 +141,19 @@ class ChatControllerTest {
                 .andExpect(jsonPath("$.tool.name").value("days_of_supply"))
                 .andExpect(jsonPath("$.tool.args.location").value("서울"))
                 .andExpect(jsonPath("$.rows").doesNotExist());
+    }
+
+    @Test
+    void returnsToolObjectForARejectedCallEvenWithoutAToolName() throws Exception {
+        when(chatService.answer(any(), any())).thenReturn(new ChatResult(
+                Action.TOOL, ChatStatus.TOOL_REJECTED, "unknown tool: null", null, null, PromptVersion.V3,
+                "qwen2.5-coder:7b", 1, 900, 40, 2500, 79L, com.scmchat.llm.Route.TOOL, null, java.util.Map.of()));
+
+        postQuestion("그 지표 알려줘")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.route").value("tool"))
+                .andExpect(jsonPath("$.tool.name").doesNotExist())
+                .andExpect(jsonPath("$.tool.args").isMap());
     }
 
     @ParameterizedTest

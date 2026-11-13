@@ -364,8 +364,7 @@ class ChatServiceTest {
 
     @Test
     void v3ToolRouteValidatesArgumentsAndRunsTheTool() {
-        QueryResult rows = new QueryResult(List.of("on_hand", "avg_daily_qty", "days_of_supply"),
-                List.of(List.<Object>of(120, 9.6, 12.5)), false);
+        QueryResult rows = new QueryResult(List.of("days_of_supply"), List.of(List.<Object>of(12.5)), false);
         ToolCall expectedCall = new ToolCall(ToolName.DAYS_OF_SUPPLY, ToolOutput.VALUE, "SKU-007", "서울센터",
                 null, null, null, null, null);
         when(toolExecutor.execute(expectedCall)).thenReturn(rows);
@@ -434,6 +433,37 @@ class ChatServiceTest {
         assertThat(result.message()).contains("statement timeout");
         assertThat(result.toolName()).isEqualTo("days_of_supply");
         assertThat(result.attempts()).isEqualTo(1);
+    }
+
+    @Test
+    void v3TurnsDatabaseFailureDuringArgumentValidationIntoExecutionError() {
+        Dimensions databaseDown = new Dimensions() {
+            @Override
+            public boolean skuExists(String sku) {
+                throw new SqlExecutionException("FATAL: the database system is shutting down", "57P01", null);
+            }
+
+            @Override
+            public List<String> locationNames() {
+                throw new SqlExecutionException("FATAL: the database system is shutting down", "57P01", null);
+            }
+        };
+        ChatProperties properties = properties();
+        ChatService stubbed = new ChatService(new PromptBuilder(properties),
+                new ScriptedLlmClient(new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0)), new LlmOutputParser(),
+                new SqlValidator(properties), executor, new ToolArgsValidator(databaseDown, properties), toolExecutor,
+                chatLogRepository, properties);
+
+        ChatResult result = stubbed.answer(QUESTION, PromptVersion.V3);
+
+        assertThat(result.action()).isEqualTo(Action.TOOL);
+        assertThat(result.status()).isEqualTo(ChatStatus.SQL_EXECUTION_ERROR);
+        assertThat(result.message()).contains("shutting down");
+        assertThat(result.route()).isEqualTo(Route.TOOL);
+        assertThat(result.toolName()).isEqualTo("days_of_supply");
+        assertThat(result.toolArgs()).containsEntry("sku", "SKU-7");
+        assertThat(savedChatLog().getStatus()).isEqualTo("SQL_EXECUTION_ERROR");
+        verify(toolExecutor, never()).execute(any());
     }
 
     @Test

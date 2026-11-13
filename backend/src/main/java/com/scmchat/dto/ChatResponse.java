@@ -49,6 +49,6 @@ public record ChatResponse(
                 result.elapsedMs(),
                 result.chatLogId(),
                 result.route(),
-                result.toolName() == null ? null : new ToolInfo(result.toolName(), result.toolArgs()));
+                result.route() == Route.TOOL ? new ToolInfo(result.toolName(), result.toolArgs()) : null);
     }
 }

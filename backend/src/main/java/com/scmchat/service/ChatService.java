@@ -45,6 +45,8 @@ public class ChatService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatService.class);
     private static final String LLM_UNAVAILABLE_MESSAGE = "LLM server is unavailable";
+    /** chat_log.tool_name, eval_result.tool_name의 길이(API_SPEC 8.5). */
+    private static final int TOOL_NAME_MAX_LENGTH = 32;
 
     private final PromptBuilder promptBuilder;
     private final LlmClient llmClient;
@@ -109,9 +111,18 @@ public class ChatService {
 
     /** 인자 검증에 실패하면 SQL 경로로 넘기거나 다시 묻지 않는다. 라우터의 인자 오류를 그대로 드러낸다. */
     private Routed runTool(ParsedRoute parsed) {
-        ToolValidation validation = toolArgsValidator.validate(parsed.tool(), parsed.args());
+        // 검증에 실패한 호출은 모델이 낸 이름과 인자를 그대로 남긴다. 이름은 tool_name 컬럼 길이에 맞춘다.
+        String rawName = abbreviate(parsed.tool(), TOOL_NAME_MAX_LENGTH);
+        ToolValidation validation;
+        try {
+            validation = toolArgsValidator.validate(parsed.tool(), parsed.args());
+        } catch (SqlExecutionException e) {
+            // 품목·거점을 확인하는 조회가 실패했다. 인자가 틀린 것이 아니므로 거부가 아니라 실행 오류다.
+            return new Routed(Route.TOOL, rawName, parsed.args().toArgsMap(),
+                    Outcome.failed(Action.TOOL, ChatStatus.SQL_EXECUTION_ERROR, e.getMessage()));
+        }
         if (!validation.ok()) {
-            return new Routed(Route.TOOL, parsed.tool(), parsed.args().toArgsMap(),
+            return new Routed(Route.TOOL, rawName, parsed.args().toArgsMap(),
                     Outcome.failed(Action.TOOL, ChatStatus.TOOL_REJECTED, validation.reason()));
         }
         ToolCall call = validation.call();
@@ -122,6 +133,10 @@ public class ChatService {
             outcome = Outcome.failed(Action.TOOL, ChatStatus.SQL_EXECUTION_ERROR, e.getMessage());
         }
         return new Routed(Route.TOOL, call.tool().value(), call.toArgsMap(), outcome);
+    }
+
+    private static String abbreviate(String value, int maxLength) {
+        return value == null || value.length() <= maxLength ? value : value.substring(0, maxLength);
     }
 
     /** SQL을 받아 실행한다. 실행 오류가 나면 maxAttempts까지 오류 문구를 붙여 다시 묻는다. */

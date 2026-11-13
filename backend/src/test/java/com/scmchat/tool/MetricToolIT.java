@@ -5,10 +5,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.scmchat.eval.ResultComparator;
 import com.scmchat.executor.QueryResult;
 import com.scmchat.executor.ReadOnlySqlExecutor;
+import com.scmchat.mapper.EvalSummaryMapper;
+import com.scmchat.mapper.MetricToolMapper;
+import com.scmchat.mapper.ToolQuery;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.Tag;
@@ -37,11 +43,18 @@ class MetricToolIT {
     private ToolExecutor toolExecutor;
 
     @Autowired
+    private MetricToolMapper metricToolMapper;
+
+    @Autowired
     private ReadOnlySqlExecutor sqlExecutor;
 
     @Autowired
     @Qualifier("scmRoSqlSessionFactory")
     private SqlSessionFactory scmRoSqlSessionFactory;
+
+    @Autowired
+    @Qualifier("sqlSessionFactory")
+    private SqlSessionFactory appSqlSessionFactory;
 
     private final ResultComparator comparator = new ResultComparator();
 
@@ -72,7 +85,7 @@ class MetricToolIT {
     @Test
     void daysOfSupplyValue() {
         assertMatches(call("days_of_supply", args("SKU-026", "서울센터", 0, "", "", "value", 0, "")), false,
-                "SELECT i.on_hand, d.daily AS avg_daily_qty, i.on_hand / d.daily AS days_of_supply"
+                "SELECT i.on_hand / d.daily AS days_of_supply"
                         + " FROM scm.inventory_daily i, (SELECT SUM(qty)::numeric / 28 AS daily FROM scm.sales_daily"
                         + " WHERE sku = 'SKU-026' AND location_id = 'LOC-01'"
                         + " AND sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08') d"
@@ -80,10 +93,6 @@ class MetricToolIT {
         // SKU 단위는 분자와 분모를 모두 거점 합산한다.
         assertMatches(call("days_of_supply", args("SKU-021", "", 0, "", "", "value", 0, "")), false,
                 "SELECT (SELECT SUM(on_hand) FROM scm.inventory_daily WHERE sku = 'SKU-021'"
-                        + " AND snap_date = DATE '2026-11-08') AS on_hand,"
-                        + " (SELECT SUM(qty) FROM scm.sales_daily WHERE sku = 'SKU-021'"
-                        + " AND sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08')::numeric / 28 AS avg_daily_qty,"
-                        + " (SELECT SUM(on_hand) FROM scm.inventory_daily WHERE sku = 'SKU-021'"
                         + " AND snap_date = DATE '2026-11-08')::numeric * 28"
                         + " / (SELECT SUM(qty) FROM scm.sales_daily WHERE sku = 'SKU-021'"
                         + " AND sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08') AS days_of_supply");
@@ -173,6 +182,19 @@ class MetricToolIT {
                 "SELECT COUNT(*) AS cnt" + from + " AND sku = 'SKU-007'");
     }
 
+    /** 집계 대상이 없어 지표 값이 NULL이어도 1행이어야 한다(API_SPEC 8.4). MyBatis는 기본 설정에서 그런 행을 null로 돌려준다. */
+    @Test
+    void valueRowWhoseOnlyColumnIsNullIsStillARow() {
+        ToolQuery noSuchSku = new ToolQuery("SKU-999", null, LocalDate.of(2026, 11, 8), LocalDate.of(2026, 11, 2),
+                LocalDate.of(2026, 11, 8), 7, null, false);
+
+        List<Map<String, Object>> rows = metricToolMapper.avgDailySalesValue(noSuchSku);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0)).isNotNull().containsEntry("avg_daily_qty", null);
+        assertThat(metricToolMapper.forecastAccuracyValue(noSuchSku).get(0)).containsEntry("accuracy", null);
+    }
+
     @Test
     void emptyListKeepsItsColumns() {
         // 시드 데이터에서 대전센터에는 안전재고 미달이 없다.
@@ -215,6 +237,11 @@ class MetricToolIT {
             }
         }
         assertThat(scmRoSqlSessionFactory.getConfiguration().getDefaultStatementTimeout()).isEqualTo(5);
+        // 조회 도구 매퍼는 scm_ro 팩토리에만, 평가 집계 매퍼는 app 팩토리에만 붙어 있어야 한다.
+        assertThat(scmRoSqlSessionFactory.getConfiguration().hasMapper(MetricToolMapper.class)).isTrue();
+        assertThat(scmRoSqlSessionFactory.getConfiguration().hasMapper(EvalSummaryMapper.class)).isFalse();
+        assertThat(appSqlSessionFactory.getConfiguration().hasMapper(EvalSummaryMapper.class)).isTrue();
+        assertThat(appSqlSessionFactory.getConfiguration().hasMapper(MetricToolMapper.class)).isFalse();
     }
 
     private ToolCall call(String toolName, RawToolArgs raw) {

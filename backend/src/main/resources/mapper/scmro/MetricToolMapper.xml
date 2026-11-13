@@ -39,9 +39,7 @@
 
   <!-- 재고보유일수: 기준일 on_hand / (최근 28일 qty 합 / 28). 분모가 0이면 NULL -->
   <select id="daysOfSupplyValue" resultType="java.util.LinkedHashMap">
-    SELECT oh.on_hand,
-           d.qty::numeric / #{days} AS avg_daily_qty,
-           oh.on_hand::numeric / NULLIF(d.qty::numeric / #{days}, 0) AS days_of_supply
+    SELECT oh.on_hand::numeric / NULLIF(d.qty::numeric / #{days}, 0) AS days_of_supply
     FROM (
       SELECT SUM(i.on_hand) AS on_hand
       FROM scm.inventory_daily i

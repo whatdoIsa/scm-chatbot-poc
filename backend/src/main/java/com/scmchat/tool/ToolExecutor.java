@@ -5,12 +5,10 @@ import com.scmchat.executor.QueryResult;
 import com.scmchat.executor.SqlExecutionException;
 import com.scmchat.mapper.MetricToolMapper;
 import com.scmchat.mapper.ToolQuery;
-import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 
@@ -42,9 +40,7 @@ public class ToolExecutor {
         try {
             fetched = fetch(call);
         } catch (DataAccessException e) {
-            Throwable root = NestedExceptionUtils.getMostSpecificCause(e);
-            String sqlState = root instanceof SQLException sqlException ? sqlException.getSQLState() : null;
-            throw new SqlExecutionException(root.getMessage(), sqlState, e);
+            throw SqlExecutionException.from(e);
         }
 
         List<List<Object>> rows = new ArrayList<>(fetched.size());
@@ -109,12 +105,16 @@ public class ToolExecutor {
                 Boolean.TRUE.equals(call.ascending()));
     }
 
+    /**
+     * 도구는 자기 지표 값만 돌려준다. 재고나 일평균 같은 구성 요소를 함께 내면, 다른 지표를 물은 질문에
+     * 도구를 잘못 골라도 채점의 추가 컬럼 허용 규칙(PRD 5.4) 때문에 정답으로 처리될 수 있다.
+     */
     static List<String> columnsOf(ToolName tool, ToolOutput output) {
         return switch (tool) {
             case AVG_DAILY_SALES -> output == ToolOutput.RANKING
                     ? List.of("sku", "avg_daily_qty") : List.of("avg_daily_qty");
             case DAYS_OF_SUPPLY -> output == ToolOutput.RANKING
-                    ? List.of("sku", "days_of_supply") : List.of("on_hand", "avg_daily_qty", "days_of_supply");
+                    ? List.of("sku", "days_of_supply") : List.of("days_of_supply");
             case STOCKOUT_RATE -> output == ToolOutput.RANKING
                     ? List.of("sku", "stockout_rate") : List.of("stockout_rate");
             case FORECAST_ACCURACY -> output == ToolOutput.RANKING

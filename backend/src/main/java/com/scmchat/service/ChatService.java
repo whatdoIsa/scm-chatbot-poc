@@ -111,22 +111,25 @@ public class ChatService {
         if (result.rows().isEmpty() || result.rows().size() > answerMaxRows || result.truncated()) {
             return Answer.SKIPPED;
         }
-        String text;
         try {
-            text = parser.parseAnswer(call(promptBuilder.buildAnswer(question, result), OutputFormat.ANSWER, usage)
-                    .rawContent());
-        } catch (LlmUnavailableException e) {
-            log.warn("LLM call failed while writing the answer", e);
-            return Answer.SKIPPED;
+            String text = parser.parseAnswer(
+                    call(promptBuilder.buildAnswer(question, result), OutputFormat.ANSWER, usage).rawContent());
+            if (text == null) {
+                return Answer.SKIPPED;
+            }
+            Verification verification = numberVerifier.verify(text,
+                    new VerificationContext(question, result, routed.toolCall(), asOfDate));
+            if (!verification.ok()) {
+                log.info("answer rejected, numbers not found in the result: {}", verification.unverified());
+            }
+            return new Answer(text, verification.ok() ? AnswerStatus.VERIFIED : AnswerStatus.REJECTED);
         } catch (FormatException e) {
             return Answer.SKIPPED;
-        }
-        if (text == null) {
+        } catch (RuntimeException e) {
+            // 답변은 덧붙이는 단계다. 여기서 무엇이 실패하든 이미 얻은 조회 결과와 로그 한 행은 지킨다(PRD 10.2).
+            log.warn("answer step failed; the query result is returned without a sentence", e);
             return Answer.SKIPPED;
         }
-        Verification verification = numberVerifier.verify(text,
-                new VerificationContext(question, result, routed.toolCall(), asOfDate));
-        return new Answer(text, verification.ok() ? AnswerStatus.VERIFIED : AnswerStatus.REJECTED);
     }
 
     private Routed routeAndAnswer(String question, Usage usage) {

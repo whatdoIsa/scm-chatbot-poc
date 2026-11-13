@@ -50,7 +50,7 @@ class NumberVerifierTest {
     }
 
     @Test
-    void acceptsNumbersFromTheQuestionAndToolArguments() {
+    void acceptsTheDaysArgumentOfATool() {
         ToolCall call = new ToolCall(ToolName.AVG_DAILY_SALES, ToolOutput.RANKING, null, "부산센터", 14,
                 null, null, 3, false);
         QueryResult result = result(List.of("sku", "avg_daily_qty"),
@@ -84,7 +84,7 @@ class NumberVerifierTest {
     }
 
     @Test
-    void ignoresDigitsInsideIdentifiersAndAllowsDigitsQuotedFromTextCells() {
+    void ignoresDigitsInsideIdentifiersInTheAnswer() {
         assertVerified("SKU-031은 냉동만두 1kg이며 단가는 19,350원입니다.", "SKU-031의 품목명과 단가는?",
                 result(List.of("name", "unit_cost"), row("냉동만두 1kg", new BigDecimal("19350.00"))));
         assertVerified("LOC-02에는 해당 품목이 없습니다.", "부산센터 결품 품목은?", result(List.of("cnt"), row(0L)));
@@ -144,6 +144,52 @@ class NumberVerifierTest {
     void rejectsAWindowTheModelWasNotGiven() {
         assertRejected("최근 28일 기준 재고보유일수는 14.7일입니다.", "재고보유일수는?",
                 result(List.of("days_of_supply"), row(new BigDecimal("14.7187"))), "28");
+    }
+
+    @Test
+    void rejectsANumberWrittenRightAfterAPeriod() {
+        QueryResult result = result(List.of("on_hand"), row(284L));
+
+        assertRejected("현재 재고는 284개입니다.99999개가 팔렸습니다.", "현재 재고는?", result, "99999");
+        assertRejected("재고는 284.5.777개입니다.", "현재 재고는?", result, "284.5", "777");
+    }
+
+    @Test
+    void doesNotTakeIdentifierDigitsFromTheQuestionOrTextCellsAsQuantities() {
+        assertRejected("SKU-007의 현재 재고는 7개입니다.", "SKU-007의 현재 재고는?", result(List.of("on_hand"), row(284L)), "7");
+        assertRejected("SKU-030의 재고는 30개, SKU-012는 12개입니다.", "재고가 많은 품목은?",
+                result(List.of("sku", "on_hand"), row("SKU-030", 412L), row("SKU-012", 518L)), "30", "12");
+    }
+
+    @Test
+    void onlyStripsSkuAndLocationIdentifiers() {
+        QueryResult result = result(List.of("on_hand"), row(284L));
+
+        assertRejected("재고는 EA-999 수준입니다.", "현재 재고는?", result, "999");
+        assertRejected("재고는 TOP-30 안에 듭니다.", "현재 재고는?", result, "30");
+        assertVerified("sku-007과 LOC-01의 재고는 284개입니다.", "현재 재고는?", result);
+    }
+
+    @Test
+    void readsFullWidthDigits() {
+        assertRejected("현재 재고는 ９９９개입니다.", "현재 재고는?", result(List.of("on_hand"), row(284L)), "999");
+    }
+
+    @Test
+    void allowsNumbersQuotedFromTextCellsAndFromTheQuestion() {
+        assertVerified("해당 품목은 콜라 500ml입니다.", "어떤 품목이야?",
+                result(List.of("name", "sku"), row("콜라 500ml", "SKU-021"), row("사이다 500ml", "SKU-022"),
+                        row("생수 2L", "SKU-023")));
+        assertVerified("최근 45일 판매량은 284개입니다.", "최근 45일 판매량은?", result(List.of("qty"), row(284L)));
+    }
+
+    /** 알려진 한계(PRD 10.5): 행 수·순위와 기준일의 연·월·일은 어떤 수량으로 쓰여도 통과한다. */
+    @Test
+    void knownHoleRanksAndAsOfDatePartsPassAsAnyQuantity() {
+        QueryResult result = result(List.of("inventory_value"), row(new BigDecimal("345739300.00")));
+
+        assertVerified("재고금액은 약 1억 원입니다.", "재고금액은?", result);
+        assertVerified("현재 재고는 11개입니다.", "현재 재고는?", result);
     }
 
     @Test

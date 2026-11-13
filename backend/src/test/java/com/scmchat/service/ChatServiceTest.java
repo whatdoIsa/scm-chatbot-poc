@@ -711,6 +711,33 @@ class ChatServiceTest {
     }
 
     @Test
+    void v3KeepsTheQueryResultWhenTheAnswerStepThrowsSomethingUnexpected() {
+        QueryResult rows = new QueryResult(List.of("days_of_supply"), List.of(List.<Object>of(12.5)), false);
+        when(toolExecutor.execute(any())).thenReturn(rows);
+        LlmClient broken = new LlmClient() {
+            @Override
+            public LlmReply generate(List<LlmMessage> messages, OutputFormat format) {
+                if (format == OutputFormat.ANSWER) {
+                    throw new IllegalStateException("unexpected failure in the answer step");
+                }
+                return new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0);
+            }
+
+            @Override
+            public String modelName() {
+                return "broken";
+            }
+        };
+
+        ChatResult result = serviceWith(broken).answer(QUESTION, PromptVersion.V3);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.OK);
+        assertThat(result.result()).isEqualTo(rows);
+        assertThat(result.answerStatus()).isEqualTo(AnswerStatus.SKIPPED);
+        assertThat(savedChatLog().getAnswerStatus()).isEqualTo("SKIPPED");
+    }
+
+    @Test
     void v3HasNoAnswerStatusWithoutAQueryResult() {
         ScriptedLlmClient scripted = new ScriptedLlmClient(
                 new LlmReply("{\"route\":\"clarify\",\"message\":\"어느 품목의 재고인가요?\"}", 0, 0),

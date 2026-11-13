@@ -2,6 +2,7 @@ package com.scmchat.answer;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,15 +13,16 @@ import org.springframework.stereotype.Component;
 /**
  * 답변 문장의 숫자가 조회 결과나 질문에서 온 것인지 확인한다(PRD 10.5).
  * 숫자의 출처만 본다. 숫자를 엉뚱한 대상에 붙였는지, 부호가 맞는지는 보지 않는다.
+ * 행 수·순위(1부터 행 수까지)와 기준일의 연·월·일은 어떤 수량으로 쓰여도 통과한다는 한계가 있다.
  */
 @Component
 public class NumberVerifier {
 
-    /** SKU-007, LOC-01 같은 식별자. 안의 숫자는 수량이 아니므로 문장에서 뽑지 않는다. */
-    private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z]+-\\d+");
+    /** SKU-007, LOC-01 같은 식별자. 안의 숫자는 수량이 아니다. 다른 영문-숫자 조합(TOP-3 등)은 식별자로 보지 않는다. */
+    private static final Pattern IDENTIFIER = Pattern.compile("(?i)\\b(?:SKU|LOC)-\\d+");
     /** 쉼표와 소수점을 포함한 아라비아 숫자. 뒤에 %나 퍼센트가 붙으면 백분율이다. */
     private static final Pattern NUMBER =
-            Pattern.compile("(?<![\\d.])((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)(\\s?%|\\s?퍼센트)?");
+            Pattern.compile("(?<!\\d)((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)(\\s?%|\\s?퍼센트)?");
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
 
     public Verification verify(String answer, VerificationContext context) {
@@ -28,7 +30,7 @@ public class NumberVerifier {
         List<BigDecimal> cells = numericCells(context);
 
         List<String> unverified = new ArrayList<>();
-        for (Token token : tokensOf(IDENTIFIER.matcher(answer).replaceAll(" "))) {
+        for (Token token : quantitiesIn(answer)) {
             if (!isAllowed(token, exact, cells)) {
                 unverified.add(token.text());
             }
@@ -60,7 +62,7 @@ public class NumberVerifier {
     /** 그대로 적혀 있어야 하는 숫자: 질문과 문자열 셀에 나온 숫자, 도구 인자, 날짜의 연·월·일, 행 수와 순위. */
     private static List<BigDecimal> exactValues(VerificationContext context) {
         List<BigDecimal> values = new ArrayList<>();
-        tokensOf(context.question()).forEach(token -> values.add(token.value()));
+        quantitiesIn(context.question()).forEach(token -> values.add(token.value()));
         addDateParts(values, context.asOfDate());
         if (context.toolCall() != null) {
             if (context.toolCall().days() != null) {
@@ -75,7 +77,7 @@ public class NumberVerifier {
         for (List<Object> row : context.result().rows()) {
             for (Object cell : row) {
                 if (cell instanceof String text) {
-                    tokensOf(text).forEach(token -> values.add(token.value()));
+                    quantitiesIn(text).forEach(token -> values.add(token.value()));
                 } else if (cell instanceof LocalDate date) {
                     addDateParts(values, date);
                 }
@@ -112,9 +114,14 @@ public class NumberVerifier {
         return !(number instanceof Double || number instanceof Float) || Double.isFinite(number.doubleValue());
     }
 
-    private static List<Token> tokensOf(String text) {
+    /**
+     * 문장에 적힌 수량. 전각 숫자는 반각으로 바꾸고 식별자 안의 숫자는 뺀다.
+     * 질문과 문자열 셀에도 같은 규칙을 써서, SKU-007의 7이 수량으로 허용되지 않게 한다.
+     */
+    private static List<Token> quantitiesIn(String text) {
+        String normalized = Normalizer.normalize(text, Normalizer.Form.NFKC);
         List<Token> tokens = new ArrayList<>();
-        Matcher matcher = NUMBER.matcher(text);
+        Matcher matcher = NUMBER.matcher(IDENTIFIER.matcher(normalized).replaceAll(" "));
         while (matcher.find()) {
             BigDecimal value = new BigDecimal(matcher.group(1).replace(",", ""));
             tokens.add(new Token(matcher.group().strip(), value, matcher.group(2) != null));

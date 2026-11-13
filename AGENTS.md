@@ -30,8 +30,8 @@ scm-chatbot-poc/
   scripts/       db_reset.sh  db_checksum.sh  verify_db.sh  eval_dump.sh  eval_restore.sh  final_check.sh
   backend/       build.gradle  src/main/java/com/scmchat/{controller,service,llm,prompt,validator,executor,mapper,entity,repository,eval,config,dto,tool,answer}
   frontend/      Vite 프로젝트
-  prompts/       v0.txt  v1.txt  v2.txt  metrics.yml  fewshot.json  schema_rules.yml  v3_router.txt  v3_answer.txt  tools.yml  router_fewshot.json
-  eval/          golden_set.json  golden_set.sha256  golden_set_deep.json  golden_set_deep.sha256  golden_set_v3.json  golden_set_v3.sha256  crosscheck.md  reports/
+  prompts/       v0.txt  v1.txt  v2.txt  metrics.yml  fewshot.json  schema_rules.yml  v3_router.txt  v3_answer.txt  tools.yml  router_fewshot.json  v4_router.txt  tools_v4.yml  router_fewshot_v4.json
+  eval/          golden_set.json  golden_set.sha256  golden_set_deep.json  golden_set_deep.sha256  golden_set_v3.json  golden_set_v3.sha256  golden_set_v4.json  golden_set_v4.sha256  crosscheck.md  reports/
   .github/       workflows/ci.yml  pull_request_template.md
   docs/          PRD.md  API_SPEC.md  ai-mistakes.md
 ```
@@ -79,6 +79,7 @@ bash scripts/final_check.sh
 6. 골든셋 해시 동결 이후 `eval/golden_set.json`, v0 프롬프트, 모델 설정을 변경하지 않는다. 문항을 더하고 싶으면 `eval/golden_set_deep.json`처럼 별도 파일로 만들고 측정 전에 해시로 동결한다.
 7. `poc-freeze` 이후에는 `prompts/v0.txt`, `v1.txt`, `v2.txt`, `metrics.yml`, `fewshot.json`, `schema_rules.yml`과 v0~v2의 동작을 바꾸지 않는다. v3은 v1 프롬프트를 그대로 읽어 쓴다.
 8. v3 프롬프트, `tools.yml`, 라우터 예시는 v3을 실제 모델로 처음 잰 뒤에는 고치지 않는다. 고쳐서 다시 재려면 버전을 새로 만든다.
+9. `v3-freeze` 이후에는 `prompts/v3_router.txt`, `v3_answer.txt`, `tools.yml`, `router_fewshot.json`과 v3의 동작을 바꾸지 않는다. v4의 파일(`v4_router.txt`, `tools_v4.yml`, `router_fewshot_v4.json`)도 v4를 실제 모델로 처음 잰 뒤에는 고치지 않는다.
 
 ## 7. 금지
 
@@ -92,7 +93,7 @@ bash scripts/final_check.sh
 
 의존 관계: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10. T11(React)은 T5 이후 아무 때나 시작할 수 있고, 모델 측정 대기 시간에 진행한다. T11의 README·동결 부분은 마지막에 한다.
 
-T0~T11은 `poc-freeze`로 끝났다. v3은 T12 → T13 → T14 → T15 → T16 → T17 순서다.
+T0~T11은 `poc-freeze`로, T12~T17(v3)은 `v3-freeze`로 끝났다. v4는 T18 → T19 → T20 → T21 순서다(PRD 11장, API_SPEC 9장).
 
 ### T0. 환경 점검과 저장소 골격
 
@@ -452,6 +453,86 @@ git tag v3-freeze
 ```
 완료: `final_check.sh` exit 0, 빌드 성공, 화면에서 도구·SQL·되묻기·거부 네 경로 수동 확인, `v3-freeze` 태그 생성. 여기까지가 카테고리 7의 PR이다.
 
+### T18. v4 명세와 새 평가 세트
+
+참조: PRD 11장, API_SPEC 9장
+
+작업
+- PRD 11장, API_SPEC 9장, 이 파일의 T18~T21 작성
+- `eval/golden_set_v4.json` 40문항(Q71~Q110) 초안. 사용자가 검토한 뒤 `sha256sum eval/golden_set_v4.json > eval/golden_set_v4.sha256`으로 동결한다. v4의 프롬프트, 도구 목록, 예시는 이 동결 뒤에 쓴다
+- `GoldenSetLoader`의 id를 숫자 2~3자리로 넓힘, `.gitattributes`에 두 파일 추가
+
+검증
+```bash
+set -a; . ./.env; set +a
+sha256sum -c eval/golden_set.sha256 eval/golden_set_deep.sha256 eval/golden_set_v3.sha256 eval/golden_set_v4.sha256
+cd backend && ./gradlew test --tests '*GoldenSetLoaderTest'
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v1 --eval.golden-path=../eval/golden_set_v4.json --eval.golden-hash-path=../eval/golden_set_v4.sha256 --eval.report-dir=build/eval-reports'
+```
+완료: 네 해시 `OK`, oracle(v1 경로) 정확도 `40 / 40 = 1.0000`, 유형별 문항 수 7/7/12/7/3/4, 기존 골든셋·예시와 질문이 겹치지 않음. v2·v3 경로의 oracle은 `SqlValidator` 오탐(FR-24) 때문에 T19 전에는 37 / 40이다.
+
+### T19. 도구 조건 인자와 검증기 오탐 수정
+
+참조: PRD 11.3, API_SPEC 9.3, 9.4
+
+작업
+- `RawToolArgs`, `ToolCall`, `ToolQuery`, `ToolArgsValidator`, `Dimensions`, `MetricToolMapper` XML에 `region`, `category`, `abc_class` 조건
+- `SqlValidator`의 접두 문자열 오탐 수정(재현 테스트 먼저)
+- 단위 테스트: 조건 인자 통과·거부(없는 카테고리, 없는 권역, 잘못된 등급, location+region, sku+category), `SqlValidatorTest`에 `'B'`·`'E'`·`'N'`·`'X'` 리터럴 통과와 `E'..'`·`B'..'` 거부
+- 통합 테스트: 조건별 도구 결과가 참조 SQL과 일치(도구 6개 × 조건 세 가지 중 대표 조합), 조건 없는 호출의 결과가 전과 같음
+
+검증
+```bash
+set -a; . ./.env; set +a
+cd backend && ./gradlew test integrationTest -PexcludeOllama
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v0,v1,v2,v3 --eval.report-dir=build/eval-reports'
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v2,v3 --eval.golden-path=../eval/golden_set_v4.json --eval.golden-hash-path=../eval/golden_set_v4.sha256 --eval.report-dir=build/eval-reports'
+```
+완료: 테스트 통과, oracle이 기존 세트에서 그대로 만점이고 새 세트의 v2·v3 경로도 `40 / 40`.
+
+### T20. v4 라우터와 분기
+
+참조: PRD 11.1, API_SPEC 9.1, 9.2, 9.4
+
+작업
+- `OutputFormat.ROUTE_V4`, `PromptVersion.V4`, `prompts/v4_router.txt`, `tools_v4.yml`(도구마다 `not_for`), `router_fewshot_v4.json`, `PromptBuilder.buildRouter(version, question)`, `ChatService`의 V4, `OracleLlmClient`
+- 단위 테스트: v3 라우터 system 프롬프트가 바뀌지 않음(해시로 고정), v4 프롬프트에 도구 6개·`not_for`·조건 인자가 들어감, v4 예시의 도구 호출이 인자 검증을 통과하고 네 골든셋과 겹치지 않음, `ChatServiceTest`의 V4 경로
+- CI의 oracle 점검에 v4와 새 세트 추가
+
+검증
+```bash
+set -a; . ./.env; set +a
+cd backend && ./gradlew test integrationTest
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v0,v1,v2,v3,v4 --eval.report-dir=build/eval-reports'
+./gradlew bootRun --args='--chat.llm.provider=ollama --chat.prompt-version=v4' > /tmp/boot.log 2>&1 &
+sleep 25
+for q in 'SKU-012의 재고보유일수는?' '스낵 카테고리의 결품률은?' '재고 어때?' 'SKU-007 재고를 0으로 바꿔줘'; do
+  curl -s -X POST localhost:8080/api/chat -H 'Content-Type: application/json' -d "{\"question\":\"$q\"}"; echo
+done
+kill %1; lsof -ti tcp:8080 | xargs kill
+```
+완료: 테스트 통과, oracle 다섯 버전 모두 `30 / 30`, curl 4건이 API_SPEC 형식(`promptVersion":"v4"`). 모델이 고른 경로가 기대와 달라도 통과다.
+
+### T21. v4 측정, 문서, 동결
+
+작업
+- v4를 네 세트로 1회씩 측정. 새 세트는 v1·v2·v3도 1회씩 측정
+- 오답 분류(미분류 0건), `eval/reports/run-*-error-types.sql`, `scripts/eval_dump.sh`
+- 110문항에서 v3과 v4의 짝 비교(새로 맞힌 문항, 새로 틀린 문항, 부호 검정), 새 세트에서 조건 문항 7개를 뺀 점수
+- `README.md`에 v4 결과와 한계(PRD 11.5), `scripts/final_check.sh`에 새 세트 해시
+
+검증
+```bash
+set -a; . ./.env; set +a
+cd backend && ./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v4'
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v4 --eval.golden-path=../eval/golden_set_deep.json --eval.golden-hash-path=../eval/golden_set_deep.sha256'
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v4 --eval.golden-path=../eval/golden_set_v3.json --eval.golden-hash-path=../eval/golden_set_v3.sha256'
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v1,v2,v3,v4 --eval.golden-path=../eval/golden_set_v4.json --eval.golden-hash-path=../eval/golden_set_v4.sha256'
+cd .. && bash scripts/final_check.sh
+git tag v4-freeze
+```
+완료: v4 실행 4개와 새 세트의 v1~v3 실행 3개 저장, v4 실행의 미분류 오답 0건, `final_check.sh` exit 0, `v4-freeze` 태그. 여기까지가 카테고리 8의 PR이다.
+
 ## 9. 일정과 T 매핑
 
 | 날짜 | T | 그날의 완료 기준 |
@@ -472,3 +553,5 @@ v3 일정 (마감은 같은 11/15 일요일 밤)
 | 일 11/15 | T17 | README, `v3-freeze`, 카테고리 7 PR |
 
 v3에서 막히면 버리는 순서: T17 화면 → T15(답변 문장과 후검증) → 홀드아웃의 v0·v2 측정. T13, T14, T16의 v3 측정은 끝까지 남긴다.
+
+v4 일정: 토 11/14에 T18~T20, 일 11/15에 T21. 막히면 버리는 순서: 새 세트의 v2 측정 → 기존 세 세트의 v4 측정. 새 세트의 v1·v3·v4 측정은 끝까지 남긴다.

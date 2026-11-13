@@ -150,4 +150,62 @@ class SqlValidatorTest {
         assertThat(validator.validate("SELECT region FROM location UNION SELECT category FROM product").sql())
                 .endsWith("LIMIT 200");
     }
+
+    /** 닫는 따옴표 앞의 한 글자를 접두 문자열(E'..', B'..')로 보고 거부하던 오탐. */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SELECT sku FROM product WHERE abc_class = 'B' AND category = '음료'",
+            "SELECT sku FROM product WHERE abc_class = 'B'",
+            "SELECT sku FROM product WHERE name = 'E' OR name = 'N' OR name = 'X'",
+            "SELECT sku FROM product WHERE abc_class IN ('A', 'B', 'C')",
+            "SELECT sku FROM product WHERE name = 'x b' AND category = '음료'"
+    })
+    void acceptsSingleLetterStringLiterals(String sql) {
+        ValidationResult result = validator.validate(sql);
+
+        assertThat(result.reason()).isNull();
+        assertThat(result.ok()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SELECT sku FROM product WHERE name = E'a'",
+            "SELECT sku FROM product WHERE name = b'0101'",
+            "SELECT sku FROM product WHERE name = X'1F'",
+            "SELECT sku FROM product WHERE name = N'a'",
+            "SELECT sku FROM product WHERE name = U&'d'",
+            "SELECT sku FROM product WHERE abc_class = 'B' AND name = E'a'"
+    })
+    void stillRejectsPrefixedStrings(String sql) {
+        ValidationResult result = validator.validate(sql);
+
+        assertThat(result.ok()).isFalse();
+        assertThat(result.reason()).contains("prefixed strings");
+    }
+
+    /** 큰따옴표 식별자 안의 작은따옴표가 리터럴 경계를 어긋나게 해 접두 문자열이나 금지 함수가 숨던 우회(v4 코드리뷰). */
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "SELECT sku AS \"q'\", name FROM product WHERE name = e'abc'",
+            "SELECT sku AS \"q'\", pg_sleep(1) AS z, name AS \"'\" FROM product",
+            "SELECT sku FROM product WHERE name = 'abc",
+            "SELECT sku AS \"abc FROM product"})
+    void rejectsQuoteTricksAroundQuotedIdentifiers(String sql) {
+        assertThat(validator.validate(sql).ok()).as(sql).isFalse();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "SELECT sku AS \"재고\" FROM inventory_daily",
+            "SELECT sku FROM product WHERE name = 'a\"b'",
+            "SELECT sku FROM product WHERE name = 'it''s' AND abc_class = 'B'"})
+    void acceptsQuotedIdentifiersAndQuotesInsideLiterals(String sql) {
+        assertThat(validator.validate(sql).ok()).as(sql + ": " + validator.validate(sql).reason()).isTrue();
+    }
+
+    @Test
+    void stripsLiteralContentButKeepsIdentifiers() {
+        assertThat(SqlValidator.stripStringLiterals("SELECT \"q'\", 'x''y' FROM t")).isEqualTo("SELECT \"q'\", '' FROM t");
+        assertThat(SqlValidator.stripStringLiterals("SELECT 'open")).isNull();
+    }
 }

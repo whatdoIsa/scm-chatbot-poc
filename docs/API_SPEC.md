@@ -696,3 +696,54 @@ chat:
 ### 8.9 `eval/golden_set_v3.json`
 
 4.5와 같은 형식이다. id는 Q51~Q70, 유형별 문항 수는 SIMPLE_LOOKUP 2, PERIOD_AGG 3, METRIC 7, RANKING 4, AMBIGUOUS 2, REFUSE 2. `eval/golden_set_v3.sha256`으로 동결한다.
+
+## 9. v4 계약 (PRD 11장)
+
+v3과 다른 점만 적는다. 응답 형식(8.1), 답변 단계, 숫자 후검증, DB 컬럼은 v3과 같다. `promptVersion`은 `v4`.
+
+### 9.1 라우터 출력 형식 `ROUTE_V4`
+
+8.2의 `ROUTE` 스키마에 문자열 속성 세 개를 더한다. 순서는 `location` 다음에 `region`, `category`, `abc_class`다. `abc_class`는 enum `["", "A", "B", "C"]`. 모두 required이며 쓰지 않으면 `""`.
+
+`ROUTE`(v3) 스키마는 바꾸지 않는다. `parseRoute`는 세 필드가 없으면 null로 읽는다.
+
+### 9.2 파일
+
+| 파일 | 용도 |
+| --- | --- |
+| `prompts/v4_router.txt` | v4 라우터 system 메시지. 플레이스홀더는 v3과 같다 |
+| `prompts/tools_v4.yml` | 도구 목록. 항목마다 `not_for`(이 도구가 답하지 않는 질문)를 둔다 |
+| `prompts/router_fewshot_v4.json` | v4 라우터 예시. 네 골든셋과 겹치지 않는다 |
+| `eval/golden_set_v4.json`, `.sha256` | 4.5 형식, id Q71~Q110(`GoldenSetLoader`의 id는 `Q` + 숫자 2~3자리) |
+| `backend/src/test/resources/router_dev_v4.json` | 라우터 개발 세트 41문항(질문, 기대 경로, 도구 경로면 도구와 검증 뒤 인자). v4 라우터 프롬프트를 다듬을 때 평가 세트 대신 본다. 네 골든셋·라우터 예시와 겹치지 않고 평가 세트를 보지 않고 썼다. `RouterDevSetIT`(`ollama` 태그)가 v4와 v3 라우터로 재서 `build/router-dev/`에 문항별 결과를 쓴다 |
+
+`prompts/v3_router.txt`, `tools.yml`, `router_fewshot.json`은 v3 전용으로 남고 바꾸지 않는다.
+
+### 9.3 조회 도구의 조건 인자
+
+`RawToolArgs`, `ToolCall`, `ToolQuery`에 `region`, `category`, `abcClass`를 더한다. `ToolCall.toArgsMap()`의 키는 `region`, `category`, `abc_class`.
+
+검증 규칙 추가(8.4에 이어서)
+
+9. `category`: 비어 있거나 product.category에 있는 값.
+10. `abc_class`: 비어 있거나 A, B, C.
+11. `region`: 비어 있거나 location.region에 있는 값. `location`과 함께 주면 거부.
+12. `sku`와 `category` 또는 `abc_class`를 함께 주면 거부.
+
+`Dimensions`에 `List<String> categories()`, `List<String> regions()`를 더한다. v3 라우터는 이 인자를 내지 않으므로 v3의 도구 호출 결과는 바뀌지 않는다.
+
+결과 컬럼은 8.4와 같다. 조건은 매퍼 XML에서 product·location에 대한 `EXISTS` 서브쿼리와 `#{}` 바인딩으로 건다.
+
+### 9.4 자바 인터페이스 변경
+
+| 패키지 | 타입 | 변경 |
+| --- | --- | --- |
+| llm | `OutputFormat` | `ROUTE_V4` 추가 |
+| prompt | `PromptVersion` | `V4("v4")` 추가 |
+| prompt | `PromptBuilder` | `buildRouter(PromptVersion version, String question)`. V3은 기존 세 파일, V4는 9.2의 파일을 쓴다 |
+| tool | `ToolCatalog` | `not_for`가 있으면 도구 줄 다음에 `  Not for: a; b.` 한 줄로 렌더링한다. `tools.yml`의 렌더링 결과는 바뀌지 않는다(v3-freeze의 해시로 테스트에 고정) |
+| service | `ChatService` | V4는 V3과 같은 흐름이며 라우터 메시지와 출력 형식만 다르다 |
+| validator | `SqlValidator` | 접두 문자열 검사가 닫는 따옴표 앞의 한 글자(`'B'`)에 걸리지 않게 한다 |
+| llm | `OracleLlmClient` | `ROUTE_V4`에도 정답 action에 맞춘 route를 돌려준다 |
+
+`SqlValidator` 수정은 v2와 v3의 SQL 경로에도 적용된다. 지금까지의 실제 모델 측정에는 `SQL_REJECTED`가 한 건도 없어 저장된 결과는 영향을 받지 않는다.

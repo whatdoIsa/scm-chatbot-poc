@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -33,7 +34,7 @@ public class PromptBuilder {
     private MetricsDictionary metricsDictionary;
     private FewShotLoader fewShotLoader;
     private SchemaSelector schemaSelector;
-    private String routerSystemPrompt;
+    private final Map<PromptVersion, String> routerSystemPrompts = new EnumMap<>(PromptVersion.class);
 
     public PromptBuilder(ChatProperties chatProperties) {
         this.promptsDir = Path.of(chatProperties.promptsDir());
@@ -45,8 +46,8 @@ public class PromptBuilder {
         }
         // 잘못된 버전과 깨진 프롬프트 파일은 첫 요청이 아니라 기동할 때 드러나게 한다.
         PromptVersion configured = PromptVersion.fromValue(chatProperties.promptVersion());
-        if (configured == PromptVersion.V3) {
-            buildRouter("기동 확인");
+        if (configured.routed()) {
+            buildRouter(configured, "기동 확인");
             build(PromptVersion.V1, "기동 확인");
             buildAnswer("기동 확인", new QueryResult(List.of("v"), List.of(), false));
         } else if (configured != PromptVersion.V0) {
@@ -55,8 +56,9 @@ public class PromptBuilder {
     }
 
     public List<LlmMessage> build(PromptVersion version, String question) {
-        if (version == PromptVersion.V3) {
-            throw new IllegalArgumentException("v3 has no single prompt: use buildRouter and build(V1)");
+        if (version.routed()) {
+            throw new IllegalArgumentException(
+                    version.value() + " has no single prompt: use buildRouter and build(V1)");
         }
         String template = readTemplate(version.value());
         String system = version == PromptVersion.V0 ? template : render(template, valuesFor(version, question));
@@ -64,26 +66,38 @@ public class PromptBuilder {
     }
 
     /**
-     * v3 라우터의 메시지(API_SPEC 8.3). system 메시지는 질문과 무관하게 같아서 한 번만 만든다.
-     * 모델 서버가 프롬프트 앞부분을 다시 계산하지 않아도 된다.
+     * 라우터의 메시지(API_SPEC 8.3, 9.2). system 메시지는 질문과 무관하게 같아서 버전마다 한 번만 만든다.
+     * 모델 서버가 프롬프트 앞부분을 다시 계산하지 않아도 된다. v3은 v3_router.txt, tools.yml, router_fewshot.json을,
+     * v4는 v4_router.txt, tools_v4.yml, router_fewshot_v4.json을 쓴다.
      */
-    public List<LlmMessage> buildRouter(String question) {
-        return List.of(LlmMessage.system(routerSystemPrompt()), LlmMessage.user(question));
+    public List<LlmMessage> buildRouter(PromptVersion version, String question) {
+        return List.of(LlmMessage.system(routerSystemPrompt(version)), LlmMessage.user(question));
     }
 
-    private synchronized String routerSystemPrompt() {
-        if (routerSystemPrompt == null) {
-            Map<String, String> values = new LinkedHashMap<>();
-            values.put("AS_OF_DATE", asOfDate.toString());
-            values.put("DATE_RULES", metricsDictionary().dateRules());
-            values.put("TOOLS", new ToolCatalog(promptsDir.resolve("tools.yml")).render());
-            values.put("ROUTER_FEWSHOT", FewShotLoader.forRouter(promptsDir.resolve("router_fewshot.json")).render());
-            routerSystemPrompt = requireNoPlaceholder(render(readTemplate("v3_router"), values), "v3_router");
+    private synchronized String routerSystemPrompt(PromptVersion version) {
+        String cached = routerSystemPrompts.get(version);
+        if (cached != null) {
+            return cached;
         }
-        return routerSystemPrompt;
+        RouterFiles files = switch (version) {
+            case V3 -> new RouterFiles("v3_router", "tools.yml", "router_fewshot.json");
+            case V4 -> new RouterFiles("v4_router", "tools_v4.yml", "router_fewshot_v4.json");
+            default -> throw new IllegalArgumentException(version.value() + " has no router");
+        };
+        Map<String, String> values = new LinkedHashMap<>();
+        values.put("AS_OF_DATE", asOfDate.toString());
+        values.put("DATE_RULES", metricsDictionary().dateRules());
+        values.put("TOOLS", new ToolCatalog(promptsDir.resolve(files.tools())).render());
+        values.put("ROUTER_FEWSHOT", FewShotLoader.forRouter(promptsDir.resolve(files.fewShot())).render());
+        String rendered = requireNoPlaceholder(render(readTemplate(files.template()), values), files.template());
+        routerSystemPrompts.put(version, rendered);
+        return rendered;
     }
 
-    /** v3 답변 문장 단계의 메시지(API_SPEC 8.3). 질문과 조회 결과를 user 메시지로 준다. */
+    private record RouterFiles(String template, String tools, String fewShot) {
+    }
+
+    /** 답변 문장 단계의 메시지(v3, v4 공통, API_SPEC 8.3). 질문과 조회 결과를 user 메시지로 준다. */
     public List<LlmMessage> buildAnswer(String question, QueryResult result) {
         String system = requireNoPlaceholder(
                 render(readTemplate("v3_answer"), Map.of("AS_OF_DATE", asOfDate.toString())), "v3_answer");

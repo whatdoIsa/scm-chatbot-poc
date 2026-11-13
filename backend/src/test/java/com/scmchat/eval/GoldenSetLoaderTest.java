@@ -73,6 +73,7 @@ class GoldenSetLoaderTest {
     @Test
     void rejectsMalformedId() {
         assertInvalid(SQL_ITEM.replace("Q01", "Q1"), "id must look like Q01");
+        assertInvalid(SQL_ITEM.replace("Q01", "Q1000"), "id must look like Q01");
     }
 
     @Test

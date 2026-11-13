@@ -196,6 +196,75 @@ class MetricToolIT {
     }
 
     @Test
+    void categoryAbcClassAndRegionFiltersMatchReferenceSql() {
+        assertMatches(call("avg_daily_sales", filtered("", "", "음료", "", 28, "value", 0, "")), false,
+                "SELECT SUM(s.qty)::numeric / 28 AS avg_daily_qty FROM scm.sales_daily s JOIN scm.product p USING (sku)"
+                        + " WHERE p.category = '음료' AND s.sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08'");
+        assertMatches(call("avg_daily_sales", filtered("", "", "스낵", "", 14, "ranking", 3, "desc")), true,
+                "SELECT s.sku, SUM(s.qty)::numeric / 14 AS avg_daily_qty FROM scm.sales_daily s"
+                        + " JOIN scm.product p USING (sku) WHERE p.category = '스낵'"
+                        + " AND s.sale_date BETWEEN DATE '2026-10-26' AND DATE '2026-11-08'"
+                        + " GROUP BY s.sku ORDER BY 2 DESC, s.sku LIMIT 3");
+        assertMatches(call("stockout_rate", period("", "", "", "B", "2026-10-01", "2026-10-31")), false,
+                "SELECT COUNT(*) FILTER (WHERE i.on_hand = 0)::numeric / COUNT(*) AS stockout_rate"
+                        + " FROM scm.inventory_daily i JOIN scm.product p USING (sku) WHERE p.abc_class = 'B'"
+                        + " AND i.snap_date BETWEEN DATE '2026-10-01' AND DATE '2026-10-31'");
+        assertMatches(call("days_of_supply", filtered("", "영남권", "", "", 0, "value", 0, "")), false,
+                "SELECT (SELECT SUM(on_hand) FROM scm.inventory_daily WHERE location_id IN ('LOC-02', 'LOC-05')"
+                        + " AND snap_date = DATE '2026-11-08')::numeric * 28"
+                        + " / (SELECT SUM(qty) FROM scm.sales_daily WHERE location_id IN ('LOC-02', 'LOC-05')"
+                        + " AND sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08') AS days_of_supply");
+        assertMatches(call("days_of_supply", filtered("", "수도권", "냉동식품", "", 0, "ranking", 3, "asc")), true,
+                "WITH oh AS (SELECT i.sku, SUM(i.on_hand)::numeric AS on_hand FROM scm.inventory_daily i"
+                        + " JOIN scm.product p USING (sku) WHERE i.snap_date = DATE '2026-11-08'"
+                        + " AND i.location_id = 'LOC-01' AND p.category = '냉동식품' GROUP BY i.sku),"
+                        + " d AS (SELECT sku, SUM(qty)::numeric / 28 AS daily FROM scm.sales_daily"
+                        + " WHERE sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08' AND location_id = 'LOC-01'"
+                        + " GROUP BY sku) SELECT oh.sku, oh.on_hand / d.daily AS days_of_supply FROM oh"
+                        + " JOIN d ON d.sku = oh.sku WHERE d.daily > 0 ORDER BY 2 ASC, oh.sku LIMIT 3");
+        assertMatches(call("forecast_accuracy", filtered("", "", "", "B", 0, "ranking", 3, "asc")), true,
+                WEEKLY + "SELECT w.sku, 1 - SUM(ABS(actual - forecast_qty))::numeric / SUM(actual) AS accuracy"
+                        + " FROM w JOIN scm.product p ON p.sku = w.sku WHERE p.abc_class = 'B'"
+                        + " GROUP BY w.sku ORDER BY 2 ASC, w.sku LIMIT 3");
+        assertMatches(call("forecast_accuracy", filtered("", "호남권", "음료", "A", 0, "value", 0, "")), false,
+                WEEKLY + "SELECT 1 - SUM(ABS(actual - forecast_qty))::numeric / SUM(actual) AS accuracy"
+                        + " FROM w JOIN scm.product p ON p.sku = w.sku WHERE p.abc_class = 'A' AND p.category = '음료'"
+                        + " AND w.location_id = 'LOC-04'");
+        String conditionFrom = " FROM scm.supply_policy p JOIN scm.inventory_daily i USING (sku, location_id)"
+                + " JOIN scm.product pr USING (sku) JOIN scm.location l USING (location_id)"
+                + " WHERE i.snap_date = DATE '2026-11-08'";
+        assertMatches(call("below_safety_stock", filtered("", "", "냉동식품", "", 0, "count", 0, "")), false,
+                "SELECT COUNT(*) AS cnt" + conditionFrom + " AND p.safety_stock > i.on_hand AND pr.category = '냉동식품'");
+        assertMatches(call("reorder_needed", filtered("", "", "", "C", 0, "count", 0, "")), false,
+                "SELECT COUNT(*) AS cnt" + conditionFrom
+                        + " AND i.on_hand + i.in_transit <= p.reorder_point AND pr.abc_class = 'C'");
+        assertMatches(call("reorder_needed", filtered("", "영남권", "", "C", 0, "list", 0, "")), true,
+                "SELECT sku, l.name AS location_name, i.on_hand, i.in_transit, p.reorder_point" + conditionFrom
+                        + " AND i.on_hand + i.in_transit <= p.reorder_point AND pr.abc_class = 'C'"
+                        + " AND l.region = '영남권' ORDER BY sku, l.name");
+    }
+
+    @Test
+    void validatorChecksFilterValuesAgainstTheDatabase() {
+        assertThat(validator.validate("days_of_supply", filtered("", "충청권", "개인위생", "B", 0, "value", 0, "")).ok())
+                .isTrue();
+        assertThat(validator.validate("days_of_supply", filtered("", "강원권", "", "", 0, "value", 0, "")).reason())
+                .contains("unknown region: 강원권");
+        assertThat(validator.validate("days_of_supply", filtered("", "", "가전", "", 0, "value", 0, "")).reason())
+                .contains("unknown category: 가전");
+    }
+
+    private static RawToolArgs filtered(String sku, String region, String category, String abcClass, int days,
+            String output, int topN, String order) {
+        return new RawToolArgs(sku, "", days, "", "", output, topN, order, region, category, abcClass);
+    }
+
+    private static RawToolArgs period(String sku, String region, String category, String abcClass, String startDate,
+            String endDate) {
+        return new RawToolArgs(sku, "", 0, startDate, endDate, "value", 0, "", region, category, abcClass);
+    }
+
+    @Test
     void emptyListKeepsItsColumns() {
         // 시드 데이터에서 대전센터에는 안전재고 미달이 없다.
         QueryResult list = toolExecutor.execute(call("below_safety_stock", args("", "대전센터", 0, "", "", "list", 0, "")));

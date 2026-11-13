@@ -42,7 +42,7 @@ import org.springframework.stereotype.Service;
  * 질문을 프롬프트로 조립해 LLM에 보내고, 응답에 따라 SQL이나 조회 도구를 실행하거나 문장을 돌려준다.
  * LLM 호출 실패, 형식 오류, 실행 오류는 예외로 내보내지 않고 status로 바꾼다. 모든 요청은 chat_log에 한 행으로 남는다.
  * v2는 실행 전에 SQL을 검증하고, 실행 오류가 나면 오류 문구를 붙여 한 번만 다시 묻는다. 검증에서 거부된 SQL은 다시 묻지 않는다.
- * v3은 라우터가 경로를 먼저 고른다(PRD 10.2). 도구 경로는 인자를 검증한 뒤 고정 쿼리를 실행하고,
+ * v3·v4는 라우터가 경로를 먼저 고른다(PRD 10.2, 11장). 도구 경로는 인자를 검증한 뒤 고정 쿼리를 실행하고,
  * SQL 경로는 v1 프롬프트에 v2의 검증과 재시도를 적용한다. 조회에 성공하면 결과를 문장으로 옮기게 하고
  * 문장의 숫자를 결과와 대조한다.
  */
@@ -90,8 +90,8 @@ public class ChatService {
         Usage usage = new Usage();
         Routed routed;
         Answer answer = Answer.NONE;
-        if (version == PromptVersion.V3) {
-            routed = routeAndAnswer(question, usage);
+        if (version.routed()) {
+            routed = routeAndAnswer(question, version, usage);
             if (routed.outcome().result() != null) {
                 answer = writeAnswer(question, routed, usage);
             }
@@ -132,10 +132,12 @@ public class ChatService {
         }
     }
 
-    private Routed routeAndAnswer(String question, Usage usage) {
+    /** v3과 v4는 같은 흐름이고 라우터의 메시지와 출력 형식만 다르다(API_SPEC 9.4). */
+    private Routed routeAndAnswer(String question, PromptVersion version, Usage usage) {
+        OutputFormat routeFormat = version == PromptVersion.V4 ? OutputFormat.ROUTE_V4 : OutputFormat.ROUTE;
         LlmReply reply;
         try {
-            reply = call(promptBuilder.buildRouter(question), OutputFormat.ROUTE, usage);
+            reply = call(promptBuilder.buildRouter(version, question), routeFormat, usage);
         } catch (LlmUnavailableException e) {
             log.warn("LLM call failed", e);
             return Routed.unrouted(Outcome.unavailable());
@@ -307,7 +309,7 @@ public class ChatService {
         }
     }
 
-    /** 라우터가 고른 경로와 그 결과. v0~v2와 라우터 호출이 실패한 v3은 route가 null이다. toolCall은 검증을 통과한 호출이다. */
+    /** 라우터가 고른 경로와 그 결과. v0~v2와 라우터 호출이 실패한 v3·v4는 route가 null이다. toolCall은 검증을 통과한 호출이다. */
     private record Routed(Route route, String toolName, Map<String, Object> toolArgs, ToolCall toolCall,
             Outcome outcome) {
 

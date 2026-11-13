@@ -27,7 +27,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class SqlValidator {
 
-    private static final Pattern STRING_LITERAL = Pattern.compile("'(?:[^']|'')*'");
     private static final Pattern COMMENT = Pattern.compile("--|/\\*|\\*/");
     private static final Pattern WRITE_KEYWORD = Pattern.compile(
             "\\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|copy|vacuum|reset|"
@@ -37,7 +36,9 @@ public class SqlValidator {
     private static final Pattern FORBIDDEN_NAME = Pattern.compile(
             "\\b(pg_\\w*|set_config|current_setting|dblink\\w*|lo_\\w+|copy|information_schema|\\w+_to_xml\\w*|"
                     + "current_user|session_user|current_role|current_database|current_catalog|current_schema\\w*)\\b");
-    private static final Pattern AMBIGUOUS_STRING = Pattern.compile("[$\\\\]|\\b(e|b|x|n|u&)['\"]", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DOLLAR_OR_BACKSLASH = Pattern.compile("[$\\\\]");
+    /** 일반 문자열을 ''로 지운 뒤에도 따옴표 바로 앞에 붙어 있는 글자. E'..', B'..', X'..', N'..', U&'..' 표기다. */
+    private static final Pattern STRING_PREFIX = Pattern.compile("\\b(e|b|x|n|u&)['\"]");
     private static final Pattern CALL = Pattern.compile("([\\p{L}\\p{N}_]+)\\s*\\(");
     private static final Set<String> ALLOWED_BEFORE_PAREN = Set.of(
             // 괄호 앞에 올 수 있는 SQL 키워드와 타입
@@ -69,10 +70,19 @@ public class SqlValidator {
         if (sql == null || sql.isBlank()) {
             return ValidationResult.rejected(sql, "SQL is empty");
         }
-        if (AMBIGUOUS_STRING.matcher(sql).find()) {
+        if (DOLLAR_OR_BACKSLASH.matcher(sql).find()) {
             return ValidationResult.rejected(sql, "dollar quotes, backslashes, and prefixed strings are not allowed");
         }
-        String scanned = STRING_LITERAL.matcher(sql).replaceAll("''").toLowerCase(Locale.ROOT);
+        String stripped = stripStringLiterals(sql);
+        if (stripped == null) {
+            return ValidationResult.rejected(sql, "unterminated quote");
+        }
+        String scanned = stripped.toLowerCase(Locale.ROOT);
+        // 접두 문자열은 문자열을 지운 뒤에 찾는다. 원문에서 찾으면 'B'처럼 한 글자 문자열의 닫는 따옴표에 걸린다.
+        // 역슬래시와 달러 인용은 위에서 이미 걸렀으므로 여기서 문자열 경계는 PostgreSQL이 읽는 것과 같다.
+        if (STRING_PREFIX.matcher(scanned).find()) {
+            return ValidationResult.rejected(sql, "dollar quotes, backslashes, and prefixed strings are not allowed");
+        }
         if (COMMENT.matcher(scanned).find()) {
             return ValidationResult.rejected(sql, "comments are not allowed");
         }
@@ -177,6 +187,47 @@ public class SqlValidator {
         } catch (NumberFormatException e) {
             return false;
         }
+    }
+
+    /**
+     * 문자열 리터럴의 내용을 지우고 ''만 남긴다. 큰따옴표 식별자는 그대로 두되, 그 안의 작은따옴표를 리터럴의 시작으로 읽지 않는다.
+     * 정규식 하나로 리터럴을 지우면 "q'" 같은 식별자가 리터럴 경계를 어긋나게 해, 뒤의 접두 문자열이나 금지 이름이
+     * 리터럴 안으로 숨는다. 따옴표가 닫히지 않으면 null.
+     */
+    static String stripStringLiterals(String sql) {
+        StringBuilder out = new StringBuilder(sql.length());
+        int i = 0;
+        while (i < sql.length()) {
+            char c = sql.charAt(i);
+            if (c == '\'' || c == '"') {
+                int end = closingQuote(sql, i + 1, c);
+                if (end < 0) {
+                    return null;
+                }
+                out.append(c == '\'' ? "''" : sql.substring(i, end + 1));
+                i = end + 1;
+            } else {
+                out.append(c);
+                i++;
+            }
+        }
+        return out.toString();
+    }
+
+    /** 따옴표를 두 번 쓴 것('' 또는 "")은 내용의 일부다. */
+    private static int closingQuote(String sql, int from, char quote) {
+        int i = from;
+        while (i < sql.length()) {
+            if (sql.charAt(i) == quote) {
+                if (i + 1 < sql.length() && sql.charAt(i + 1) == quote) {
+                    i += 2;
+                    continue;
+                }
+                return i;
+            }
+            i++;
+        }
+        return -1;
     }
 
     private static String firstMatch(Pattern pattern, String text) {

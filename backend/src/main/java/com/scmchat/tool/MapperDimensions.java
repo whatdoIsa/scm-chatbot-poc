@@ -33,4 +33,22 @@ public class MapperDimensions implements Dimensions {
             throw SqlExecutionException.from(e);
         }
     }
+
+    @Override
+    public List<String> regions() {
+        try {
+            return mapper.regions();
+        } catch (DataAccessException e) {
+            throw SqlExecutionException.from(e);
+        }
+    }
+
+    @Override
+    public List<String> categories() {
+        try {
+            return mapper.categories();
+        } catch (DataAccessException e) {
+            throw SqlExecutionException.from(e);
+        }
+    }
 }

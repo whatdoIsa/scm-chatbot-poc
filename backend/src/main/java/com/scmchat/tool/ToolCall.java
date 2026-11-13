@@ -14,13 +14,25 @@ public record ToolCall(
         LocalDate startDate,
         LocalDate endDate,
         Integer topN,
-        Boolean ascending) {
+        Boolean ascending,
+        String region,
+        String category,
+        String abcClass) {
+
+    /** 조건 인자가 없는 호출. */
+    public ToolCall(ToolName tool, ToolOutput output, String sku, String location, Integer days, LocalDate startDate,
+            LocalDate endDate, Integer topN, Boolean ascending) {
+        this(tool, output, sku, location, days, startDate, endDate, topN, ascending, null, null, null);
+    }
 
     /** 응답과 로그에 남길 인자. 라우터 출력과 같은 키를 쓰고 쓰지 않는 인자는 뺀다. */
     public Map<String, Object> toArgsMap() {
         Map<String, Object> args = new LinkedHashMap<>();
         putIfPresent(args, "sku", sku);
         putIfPresent(args, "location", location);
+        putIfPresent(args, "region", region);
+        putIfPresent(args, "category", category);
+        putIfPresent(args, "abc_class", abcClass);
         putIfPresent(args, "days", days);
         putIfPresent(args, "start_date", startDate == null ? null : startDate.toString());
         putIfPresent(args, "end_date", endDate == null ? null : endDate.toString());

@@ -14,5 +14,14 @@ public record ToolQuery(
         LocalDate toDate,
         Integer days,
         Integer limit,
-        boolean ascending) {
+        boolean ascending,
+        String region,
+        String category,
+        String abcClass) {
+
+    /** 조건 인자가 없는 쿼리. */
+    public ToolQuery(String sku, String location, LocalDate asOfDate, LocalDate fromDate, LocalDate toDate,
+            Integer days, Integer limit, boolean ascending) {
+        this(sku, location, asOfDate, fromDate, toDate, days, limit, ascending, null, null, null);
+    }
 }

@@ -22,6 +22,16 @@ class ToolArgsValidatorTest {
         public List<String> locationNames() {
             return List.of("서울센터", "부산센터", "대전센터");
         }
+
+        @Override
+        public List<String> regions() {
+            return List.of("수도권", "영남권", "충청권", "호남권");
+        }
+
+        @Override
+        public List<String> categories() {
+            return List.of("스낵", "음료", "개인위생", "냉동식품", "생활용품");
+        }
     };
 
     private final ToolArgsValidator validator = new ToolArgsValidator(DIMENSIONS, new ChatProperties(
@@ -193,6 +203,61 @@ class ToolArgsValidatorTest {
                 "period must be within");
         assertRejected(validator.validate("stockout_rate", args("", "", 0, "2026-11-01", "2026-11-09", "value", 0, "")),
                 "period must be within");
+    }
+
+    @Test
+    void acceptsRegionCategoryAndAbcClassFilters() {
+        ToolValidation value = validator.validate("avg_daily_sales", filtered("", "", "영남권", "음료", "A", 28, "value", 0, ""));
+        ToolValidation ranking = validator.validate("stockout_rate", filtered("", "", "", "스낵", "", 0, "ranking", 3, "desc"));
+        ToolValidation count = validator.validate("reorder_needed", filtered("", "서울센터", "", "", "C", 0, "count", 0, ""));
+
+        assertThat(value.call()).isEqualTo(new ToolCall(ToolName.AVG_DAILY_SALES, ToolOutput.VALUE, null, null, 28,
+                null, null, null, null, "영남권", "음료", "A"));
+        assertThat(value.call().toArgsMap()).containsExactly(
+                java.util.Map.entry("region", "영남권"), java.util.Map.entry("category", "음료"),
+                java.util.Map.entry("abc_class", "A"), java.util.Map.entry("days", 28),
+                java.util.Map.entry("output", "value"));
+        assertThat(ranking.ok()).isTrue();
+        assertThat(ranking.call().category()).isEqualTo("스낵");
+        assertThat(count.ok()).isTrue();
+        assertThat(count.call().abcClass()).isEqualTo("C");
+    }
+
+    @Test
+    void rejectsUnknownFilterValues() {
+        assertRejected(validator.validate("days_of_supply", filtered("", "", "강원권", "", "", 0, "value", 0, "")), "unknown region");
+        assertRejected(validator.validate("days_of_supply", filtered("", "", "", "가전", "", 0, "value", 0, "")), "unknown category");
+        assertRejected(validator.validate("days_of_supply", filtered("", "", "", "", "D", 0, "value", 0, "")), "unknown abc_class");
+        assertRejected(validator.validate("days_of_supply", filtered("", "", "", "", "a", 0, "value", 0, "")), "unknown abc_class");
+        assertRejected(validator.validate("days_of_supply", filtered("", "", "", "음료' OR '1'='1", "", 0, "value", 0, "")),
+                "unknown category");
+    }
+
+    @Test
+    void rejectsContradictoryFilterCombinations() {
+        assertRejected(validator.validate("days_of_supply", filtered("", "서울센터", "수도권", "", "", 0, "value", 0, "")),
+                "location and region cannot be given together");
+        assertRejected(validator.validate("days_of_supply", filtered("SKU-007", "", "", "음료", "", 0, "value", 0, "")),
+                "sku cannot be combined");
+        assertRejected(validator.validate("days_of_supply", filtered("SKU-007", "", "", "", "A", 0, "value", 0, "")),
+                "sku cannot be combined");
+        assertThat(validator.validate("days_of_supply", filtered("SKU-007", "", "수도권", "", "", 0, "value", 0, "")).ok())
+                .isTrue();
+    }
+
+    @Test
+    void callWithoutFiltersIsTheSameAsBefore() {
+        ToolValidation result = validator.validate("days_of_supply", args("SKU-007", "서울센터", 0, "", "", "value", 0, ""));
+
+        assertThat(result.call().region()).isNull();
+        assertThat(result.call().category()).isNull();
+        assertThat(result.call().abcClass()).isNull();
+        assertThat(result.call().toArgsMap()).containsOnlyKeys("sku", "location", "output");
+    }
+
+    private static RawToolArgs filtered(String sku, String location, String region, String category, String abcClass,
+            int days, String output, int topN, String order) {
+        return new RawToolArgs(sku, location, days, "", "", output, topN, order, region, category, abcClass);
     }
 
     private static RawToolArgs args(String sku, String location, int days, String startDate, String endDate,

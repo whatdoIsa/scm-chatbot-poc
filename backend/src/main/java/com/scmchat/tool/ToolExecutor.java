@@ -102,7 +102,7 @@ public class ToolExecutor {
             default -> null;
         };
         return new ToolQuery(call.sku(), call.location(), asOfDate, fromDate, toDate, days, limit,
-                Boolean.TRUE.equals(call.ascending()));
+                Boolean.TRUE.equals(call.ascending()), call.region(), call.category(), call.abcClass());
     }
 
     /**

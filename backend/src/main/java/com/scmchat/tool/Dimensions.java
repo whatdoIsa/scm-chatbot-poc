@@ -11,4 +11,8 @@ public interface Dimensions {
     boolean skuExists(String sku);
 
     List<String> locationNames();
+
+    List<String> regions();
+
+    List<String> categories();
 }

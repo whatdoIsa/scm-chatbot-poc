@@ -2,6 +2,7 @@ package com.scmchat.prompt;
 
 import com.scmchat.config.ChatProperties;
 import com.scmchat.llm.LlmMessage;
+import com.scmchat.tool.ToolCatalog;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -29,6 +30,7 @@ public class PromptBuilder {
     private MetricsDictionary metricsDictionary;
     private FewShotLoader fewShotLoader;
     private SchemaSelector schemaSelector;
+    private String routerSystemPrompt;
 
     public PromptBuilder(ChatProperties chatProperties) {
         this.promptsDir = Path.of(chatProperties.promptsDir());
@@ -40,15 +42,41 @@ public class PromptBuilder {
         }
         // 잘못된 버전과 깨진 프롬프트 파일은 첫 요청이 아니라 기동할 때 드러나게 한다.
         PromptVersion configured = PromptVersion.fromValue(chatProperties.promptVersion());
-        if (configured != PromptVersion.V0) {
+        if (configured == PromptVersion.V3) {
+            buildRouter("기동 확인");
+            build(PromptVersion.V1, "기동 확인");
+        } else if (configured != PromptVersion.V0) {
             build(configured, "기동 확인");
         }
     }
 
     public List<LlmMessage> build(PromptVersion version, String question) {
-        String template = readTemplate(version);
+        if (version == PromptVersion.V3) {
+            throw new IllegalArgumentException("v3 has no single prompt: use buildRouter and build(V1)");
+        }
+        String template = readTemplate(version.value());
         String system = version == PromptVersion.V0 ? template : render(template, valuesFor(version, question));
-        return List.of(LlmMessage.system(requireNoPlaceholder(system, version)), LlmMessage.user(question));
+        return List.of(LlmMessage.system(requireNoPlaceholder(system, version.value())), LlmMessage.user(question));
+    }
+
+    /**
+     * v3 라우터의 메시지(API_SPEC 8.3). system 메시지는 질문과 무관하게 같아서 한 번만 만든다.
+     * 모델 서버가 프롬프트 앞부분을 다시 계산하지 않아도 된다.
+     */
+    public List<LlmMessage> buildRouter(String question) {
+        return List.of(LlmMessage.system(routerSystemPrompt()), LlmMessage.user(question));
+    }
+
+    private synchronized String routerSystemPrompt() {
+        if (routerSystemPrompt == null) {
+            Map<String, String> values = new LinkedHashMap<>();
+            values.put("AS_OF_DATE", asOfDate.toString());
+            values.put("DATE_RULES", metricsDictionary().dateRules());
+            values.put("TOOLS", new ToolCatalog(promptsDir.resolve("tools.yml")).render());
+            values.put("ROUTER_FEWSHOT", FewShotLoader.forRouter(promptsDir.resolve("router_fewshot.json")).render());
+            routerSystemPrompt = requireNoPlaceholder(render(readTemplate("v3_router"), values), "v3_router");
+        }
+        return routerSystemPrompt;
     }
 
     /** v2의 실행 오류 재시도 메시지(API_SPEC 3.3). 이전 대화에 모델의 원문과 PostgreSQL 오류를 덧붙인다. */
@@ -122,8 +150,8 @@ public class PromptBuilder {
         return fewShotLoader;
     }
 
-    private String readTemplate(PromptVersion version) {
-        Path file = promptsDir.resolve(version.value() + ".txt");
+    private String readTemplate(String name) {
+        Path file = promptsDir.resolve(name + ".txt");
         try {
             return Files.readString(file, StandardCharsets.UTF_8).strip();
         } catch (IOException e) {
@@ -131,11 +159,11 @@ public class PromptBuilder {
         }
     }
 
-    private static String requireNoPlaceholder(String rendered, PromptVersion version) {
+    private static String requireNoPlaceholder(String rendered, String name) {
         Matcher matcher = PLACEHOLDER.matcher(rendered);
         if (matcher.find()) {
             throw new IllegalStateException(
-                    "unresolved placeholder " + matcher.group() + " in prompt " + version.value());
+                    "unresolved placeholder " + matcher.group() + " in prompt " + name);
         }
         return rendered;
     }

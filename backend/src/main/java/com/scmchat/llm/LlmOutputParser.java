@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.scmchat.tool.RawToolArgs;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
@@ -22,13 +23,12 @@ public class LlmOutputParser {
             .build();
 
     public ParsedOutput parse(String raw) {
-        if (raw == null || raw.isBlank()) {
-            throw new FormatException("LLM output is empty");
-        }
-        JsonNode root = readObject(stripCodeFence(raw.strip()));
+        JsonNode root = readObject(stripCodeFence(requireNotBlank(raw).strip()));
 
         String actionValue = text(root, "action");
+        // tool은 서버가 붙이는 action이다. 모델이 ACTION 형식으로 내면 알 수 없는 action이다.
         Action action = Action.fromValue(actionValue)
+                .filter(candidate -> candidate != Action.TOOL)
                 .orElseThrow(() -> new FormatException("unknown action: " + actionValue));
         String sql = stripTrailingSemicolons(text(root, "sql"));
         String message = text(root, "message");
@@ -40,6 +40,35 @@ public class LlmOutputParser {
             throw new FormatException("action is " + action.value() + " but message is empty");
         }
         return new ParsedOutput(action, sql, message);
+    }
+
+    /** 라우터 출력(API_SPEC 8.2). 도구 이름과 인자의 값은 여기서 검증하지 않는다. */
+    public ParsedRoute parseRoute(String raw) {
+        JsonNode root = readObject(stripCodeFence(requireNotBlank(raw).strip()));
+
+        String routeValue = text(root, "route");
+        Route route = Route.fromValue(routeValue)
+                .orElseThrow(() -> new FormatException("unknown route: " + routeValue));
+        String message = text(root, "message");
+        if ((route == Route.CLARIFY || route == Route.REFUSE) && message == null) {
+            throw new FormatException("route is " + route.value() + " but message is empty");
+        }
+        RawToolArgs args = new RawToolArgs(text(root, "sku"), text(root, "location"), integer(root, "days"),
+                text(root, "start_date"), text(root, "end_date"), text(root, "output"), integer(root, "top_n"),
+                text(root, "order"));
+        return new ParsedRoute(route, text(root, "tool"), args, message);
+    }
+
+    /** 답변 문장(API_SPEC 8.2). 비어 있으면 null. */
+    public String parseAnswer(String raw) {
+        return text(readObject(stripCodeFence(requireNotBlank(raw).strip())), "answer");
+    }
+
+    private static String requireNotBlank(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new FormatException("LLM output is empty");
+        }
+        return raw;
     }
 
     private JsonNode readObject(String body) {
@@ -71,6 +100,18 @@ public class LlmOutputParser {
         }
         String value = node.asText().strip();
         return value.isEmpty() ? null : value;
+    }
+
+    /** 없는 필드와 null은 0으로 본다. 정수가 아니면 형식 오류다. */
+    private static int integer(JsonNode root, String field) {
+        JsonNode node = root.get(field);
+        if (node == null || node.isNull()) {
+            return 0;
+        }
+        if (!node.isIntegralNumber() || !node.canConvertToInt()) {
+            throw new FormatException(field + " must be an integer");
+        }
+        return node.intValue();
     }
 
     private static String stripTrailingSemicolons(String sql) {

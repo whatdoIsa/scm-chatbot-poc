@@ -5,3 +5,5 @@ eval/golden_set_deep.json -text
 eval/golden_set_deep.sha256 -text
 eval/golden_set_v3.json -text
 eval/golden_set_v3.sha256 -text
+eval/golden_set_v4.json -text
+eval/golden_set_v4.sha256 -text

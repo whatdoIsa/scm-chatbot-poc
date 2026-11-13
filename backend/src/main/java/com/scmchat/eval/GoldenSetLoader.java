@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class GoldenSetLoader {
 
-    private static final Pattern ID = Pattern.compile("Q\\d{2}");
+    private static final Pattern ID = Pattern.compile("Q\\d{2,3}");
     private static final Set<String> FIELDS =
             Set.of("id", "type", "question", "expectedAction", "goldenSql", "orderSensitive", "note");
 

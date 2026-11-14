@@ -33,7 +33,7 @@ scm-chatbot-poc/
   prompts/       v0.txt  v1.txt  v2.txt  metrics.yml  fewshot.json  schema_rules.yml  v3_router.txt  v3_answer.txt  tools.yml  router_fewshot.json  v4_router.txt  tools_v4.yml  router_fewshot_v4.json
   eval/          golden_set.json  golden_set.sha256  golden_set_deep.json  golden_set_deep.sha256  golden_set_v3.json  golden_set_v3.sha256  golden_set_v4.json  golden_set_v4.sha256  golden_set_v5.json  golden_set_v5.sha256  crosscheck.md  reports/
   .github/       workflows/ci.yml  pull_request_template.md
-  docs/          PRD.md  API_SPEC.md  ai-mistakes.md
+  docs/          PRD.md  API_SPEC.md  RESULTS.md  ai-mistakes.md
 ```
 
 ## 4. 명령

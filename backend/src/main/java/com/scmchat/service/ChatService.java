@@ -27,6 +27,7 @@ import com.scmchat.tool.ToolArgsJson;
 import com.scmchat.tool.ToolArgsValidator;
 import com.scmchat.tool.ToolCall;
 import com.scmchat.tool.ToolExecutor;
+import com.scmchat.tool.ToolRouteGuard;
 import com.scmchat.tool.ToolValidation;
 import com.scmchat.validator.SqlValidator;
 import com.scmchat.validator.ValidationResult;
@@ -61,6 +62,7 @@ public class ChatService {
     private final ReadOnlySqlExecutor executor;
     private final ToolArgsValidator toolArgsValidator;
     private final ToolExecutor toolExecutor;
+    private final ToolRouteGuard toolRouteGuard;
     private final NumberVerifier numberVerifier;
     private final ChatLogRepository chatLogRepository;
     private final int validatorLimit;
@@ -69,8 +71,8 @@ public class ChatService {
 
     public ChatService(PromptBuilder promptBuilder, LlmClient llmClient, LlmOutputParser parser,
             SqlValidator validator, ReadOnlySqlExecutor executor, ToolArgsValidator toolArgsValidator,
-            ToolExecutor toolExecutor, NumberVerifier numberVerifier, ChatLogRepository chatLogRepository,
-            ChatProperties chatProperties) {
+            ToolExecutor toolExecutor, ToolRouteGuard toolRouteGuard, NumberVerifier numberVerifier,
+            ChatLogRepository chatLogRepository, ChatProperties chatProperties) {
         this.promptBuilder = promptBuilder;
         this.llmClient = llmClient;
         this.parser = parser;
@@ -78,6 +80,7 @@ public class ChatService {
         this.executor = executor;
         this.toolArgsValidator = toolArgsValidator;
         this.toolExecutor = toolExecutor;
+        this.toolRouteGuard = toolRouteGuard;
         this.numberVerifier = numberVerifier;
         this.chatLogRepository = chatLogRepository;
         this.validatorLimit = chatProperties.validatorLimit();
@@ -134,7 +137,7 @@ public class ChatService {
 
     /** v3과 v4는 같은 흐름이고 라우터의 메시지와 출력 형식만 다르다(API_SPEC 9.4). */
     private Routed routeAndAnswer(String question, PromptVersion version, Usage usage) {
-        OutputFormat routeFormat = version == PromptVersion.V4 ? OutputFormat.ROUTE_V4 : OutputFormat.ROUTE;
+        OutputFormat routeFormat = version == PromptVersion.V3 ? OutputFormat.ROUTE : OutputFormat.ROUTE_V4;
         LlmReply reply;
         try {
             reply = call(promptBuilder.buildRouter(version, question), routeFormat, usage);
@@ -153,7 +156,7 @@ public class ChatService {
             case REFUSE -> Routed.of(Route.REFUSE, Outcome.message(Action.REFUSE, parsed.message()));
             // SQL 단계가 clarify나 refuse를 내면 그 action이 최종 결과다.
             case SQL -> Routed.of(Route.SQL, sqlStage(promptBuilder.build(PromptVersion.V1, question), true, 2, usage));
-            case TOOL -> runTool(parsed);
+            case TOOL -> version == PromptVersion.V5 ? runGuardedTool(question, parsed, usage) : runTool(parsed);
         };
     }
 
@@ -181,6 +184,50 @@ public class ChatService {
             outcome = Outcome.failed(Action.TOOL, ChatStatus.SQL_EXECUTION_ERROR, e.getMessage());
         }
         return new Routed(Route.TOOL, call.tool().value(), call.toArgsMap(), call, outcome);
+    }
+
+    /**
+     * v5의 도구 경로(PRD 12.2). 인자 검증에 실패했거나 도구가 질문과 맞지 않으면 도구를 실행하지 않고 SQL 단계로 보낸다.
+     * 그때 route는 sql이고, 라우터가 냈던 도구 이름과 인자에 막은 이유(guard)를 붙여 로그에 남긴다.
+     */
+    private Routed runGuardedTool(String question, ParsedRoute parsed, Usage usage) {
+        ToolValidation validation;
+        try {
+            validation = toolArgsValidator.validate(parsed.tool(), parsed.args());
+        } catch (SqlExecutionException e) {
+            return new Routed(Route.TOOL, abbreviate(parsed.tool(), TOOL_NAME_MAX_LENGTH), parsed.args().toArgsMap(),
+                    null, Outcome.failed(Action.TOOL, ChatStatus.SQL_EXECUTION_ERROR, e.getMessage()));
+        }
+        if (!validation.ok()) {
+            return toSqlStage(question, abbreviate(parsed.tool(), TOOL_NAME_MAX_LENGTH), parsed.args().toArgsMap(),
+                    "rejected: " + validation.reason(), usage);
+        }
+        ToolRouteGuard.Decision decision = toolRouteGuard.check(question, validation.call());
+        if (decision.reroute()) {
+            return toSqlStage(question, validation.call().tool().value(), validation.call().toArgsMap(),
+                    decision.rerouteReason(), usage);
+        }
+        ToolCall call = decision.call();
+        Map<String, Object> args = call.toArgsMap();
+        if (decision.orderCorrected()) {
+            args.put("guard", "order corrected");
+        }
+        Outcome outcome;
+        try {
+            outcome = new Outcome(Action.TOOL, ChatStatus.OK, null, null, toolExecutor.execute(call), null);
+        } catch (SqlExecutionException e) {
+            outcome = Outcome.failed(Action.TOOL, ChatStatus.SQL_EXECUTION_ERROR, e.getMessage());
+        }
+        return new Routed(Route.TOOL, call.tool().value(), args, call, outcome);
+    }
+
+    private Routed toSqlStage(String question, String toolName, Map<String, Object> toolArgs, String reason,
+            Usage usage) {
+        Map<String, Object> args = new java.util.LinkedHashMap<>(toolArgs);
+        args.put("guard", reason);
+        log.info("tool route sent to the sql stage: {} {}", toolName, reason);
+        return new Routed(Route.SQL, toolName, args, null,
+                sqlStage(promptBuilder.build(PromptVersion.V1, question), true, 2, usage));
     }
 
     private static String abbreviate(String value, int maxLength) {

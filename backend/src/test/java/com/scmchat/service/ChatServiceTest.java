@@ -487,6 +487,93 @@ class ChatServiceTest {
         verify(executor, never()).execute(any());
     }
 
+    private static final String ROUTE_AVG_SKU7 = "{\"route\":\"tool\",\"tool\":\"avg_daily_sales\",\"sku\":\"SKU-007\",\"days\":7,\"output\":\"value\"}";
+    private static final String SQL_REPLY =
+            "{\"action\":\"sql\",\"sql\":\"SELECT SUM(qty) FROM sales_daily\",\"message\":\"\"}";
+
+    /** v5: 질문에 "평균"이 없는데 일평균 도구를 고르면 도구를 실행하지 않고 v1 프롬프트의 SQL 단계로 보낸다(PRD 12.3). */
+    @Test
+    void v5SendsAToolCallThatDoesNotFitTheQuestionToTheSqlStage() {
+        QueryResult rows = new QueryResult(List.of("sum"), List.of(List.<Object>of(840)), false);
+        when(executor.execute("SELECT SUM(qty) FROM sales_daily LIMIT 200")).thenReturn(rows);
+        String question = "이번 주 SKU-007 출고량은?";
+        ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply(ROUTE_AVG_SKU7, 0, 0),
+                new LlmReply(SQL_REPLY, 0, 0), new LlmReply("{\"answer\":\"\"}", 0, 0));
+
+        ChatResult result = serviceWith(scripted).answer(question, PromptVersion.V5);
+
+        assertThat(result.action()).isEqualTo(Action.SQL);
+        assertThat(result.status()).isEqualTo(ChatStatus.OK);
+        assertThat(result.route()).isEqualTo(Route.SQL);
+        assertThat(result.result()).isEqualTo(rows);
+        assertThat(result.toolName()).isEqualTo("avg_daily_sales");
+        assertThat(result.toolArgs()).containsEntry("days", 7)
+                .containsEntry("guard", "question does not name the metric of the tool");
+        assertThat(scripted.formats).containsExactly(OutputFormat.ROUTE_V4, OutputFormat.ACTION, OutputFormat.ANSWER);
+        assertThat(scripted.requests.get(1))
+                .isEqualTo(new PromptBuilder(properties()).build(PromptVersion.V1, question));
+        verify(toolExecutor, never()).execute(any());
+        ChatLog saved = savedChatLog();
+        assertThat(saved.getPromptVersion()).isEqualTo("v5");
+        assertThat(saved.getRoute()).isEqualTo("sql");
+        assertThat(saved.getToolName()).isEqualTo("avg_daily_sales");
+        assertThat(saved.getToolArgs()).contains("\"guard\":");
+        assertThat(saved.getGeneratedSql()).isEqualTo("SELECT SUM(qty) FROM sales_daily LIMIT 200");
+    }
+
+    /** v4는 같은 호출을 그대로 실행한다. 점검은 v5에만 있다. */
+    @Test
+    void v4RunsTheSameToolCallWithoutTheGuard() {
+        QueryResult rows = new QueryResult(List.of("avg_daily_qty"), List.of(List.<Object>of(120)), false);
+        when(toolExecutor.execute(any())).thenReturn(rows);
+        ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply(ROUTE_AVG_SKU7, 0, 0),
+                new LlmReply("{\"answer\":\"\"}", 0, 0));
+
+        ChatResult result = serviceWith(scripted).answer("이번 주 SKU-007 출고량은?", PromptVersion.V4);
+
+        assertThat(result.action()).isEqualTo(Action.TOOL);
+        assertThat(result.route()).isEqualTo(Route.TOOL);
+        assertThat(result.toolArgs()).doesNotContainKey("guard");
+        verify(executor, never()).execute(any());
+    }
+
+    /** v5는 인자 검증에 실패한 호출도 TOOL_REJECTED로 끝내지 않고 SQL 단계로 보낸다. */
+    @Test
+    void v5SendsARejectedToolCallToTheSqlStage() {
+        when(executor.execute(any())).thenReturn(new QueryResult(List.of("cnt"), List.of(List.<Object>of(3)), false));
+        ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply("{\"route\":\"tool\","
+                + "\"tool\":\"stockout_rate\",\"output\":\"count\"}", 0, 0),
+                new LlmReply(SQL_REPLY, 0, 0), new LlmReply("{\"answer\":\"\"}", 0, 0));
+
+        ChatResult result = serviceWith(scripted).answer("10월에 결품률이 0보다 컸던 SKU-거점 수", PromptVersion.V5);
+
+        assertThat(result.status()).isEqualTo(ChatStatus.OK);
+        assertThat(result.route()).isEqualTo(Route.SQL);
+        assertThat(result.toolName()).isEqualTo("stockout_rate");
+        assertThat((String) result.toolArgs().get("guard")).startsWith("rejected: output must be one of");
+        verify(toolExecutor, never()).execute(any());
+    }
+
+    /** v5는 질문이 한쪽 방향만 말하면 순위의 정렬 방향을 고쳐 실행한다. */
+    @Test
+    void v5CorrectsTheRankingOrderBeforeRunningTheTool() {
+        ToolCall corrected = new ToolCall(ToolName.DAYS_OF_SUPPLY, ToolOutput.RANKING, null, null, null, null, null,
+                3, false);
+        QueryResult rows = new QueryResult(List.of("sku", "days_of_supply"),
+                List.of(List.<Object>of("SKU-007", 30.5)), false);
+        when(toolExecutor.execute(corrected)).thenReturn(rows);
+        ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply("{\"route\":\"tool\","
+                + "\"tool\":\"days_of_supply\",\"output\":\"ranking\",\"top_n\":3,\"order\":\"asc\"}", 0, 0),
+                new LlmReply("{\"answer\":\"\"}", 0, 0));
+
+        ChatResult result = serviceWith(scripted).answer("재고보유일수가 가장 긴 품목 3개", PromptVersion.V5);
+
+        assertThat(result.action()).isEqualTo(Action.TOOL);
+        assertThat(result.result()).isEqualTo(rows);
+        assertThat(result.toolArgs()).containsEntry("order", "desc").containsEntry("guard", "order corrected");
+        verify(toolExecutor).execute(corrected);
+    }
+
     @Test
     void v3RejectsInvalidToolArgumentsWithoutFallingBackToSql() {
         ScriptedLlmClient scripted = new ScriptedLlmClient(new LlmReply(
@@ -551,7 +638,7 @@ class ChatServiceTest {
         ChatService stubbed = new ChatService(new PromptBuilder(properties),
                 new ScriptedLlmClient(new LlmReply(ROUTE_DAYS_OF_SUPPLY, 0, 0)), new LlmOutputParser(),
                 new SqlValidator(properties), executor, new ToolArgsValidator(databaseDown, properties), toolExecutor,
-                new NumberVerifier(), chatLogRepository, properties);
+                new com.scmchat.tool.ToolRouteGuard(DIMENSIONS), new NumberVerifier(), chatLogRepository, properties);
 
         ChatResult result = stubbed.answer(QUESTION, PromptVersion.V3);
 
@@ -871,7 +958,7 @@ class ChatServiceTest {
         ChatProperties properties = properties();
         return new ChatService(new PromptBuilder(properties), llmClient, new LlmOutputParser(),
                 new SqlValidator(properties), executor, new ToolArgsValidator(DIMENSIONS, properties), toolExecutor,
-                new NumberVerifier(), chatLogRepository, properties);
+                new com.scmchat.tool.ToolRouteGuard(DIMENSIONS), new NumberVerifier(), chatLogRepository, properties);
     }
 
     /** 정해 둔 응답을 순서대로 돌려주고 받은 메시지를 기록한다. */

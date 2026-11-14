@@ -277,6 +277,14 @@ class PromptBuilderTest {
                 "v4", LocalDate.of(2026, 11, 8), LocalDate.of(2026, 8, 10), 1000, 200, 20, "../prompts", llm));
     }
 
+    /** v5는 v4의 라우터를 그대로 쓴다. 바뀌는 것은 서버의 도구 경로 점검뿐이다(PRD 12장). */
+    @Test
+    void v5UsesTheV4RouterUnchanged() {
+        assertThat(builder.buildRouter(PromptVersion.V5, QUESTION))
+                .isEqualTo(builder.buildRouter(PromptVersion.V4, QUESTION));
+        assertThat(PromptVersion.V5.routed()).isTrue();
+    }
+
     private static String sha256(String text) {
         try {
             return HexFormat.of().formatHex(

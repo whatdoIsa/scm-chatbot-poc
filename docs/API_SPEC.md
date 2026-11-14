@@ -715,6 +715,7 @@ v3과 다른 점만 적는다. 응답 형식(8.1), 답변 단계, 숫자 후검�
 | `prompts/tools_v4.yml` | 도구 목록. 항목마다 `not_for`(이 도구가 답하지 않는 질문)를 둔다 |
 | `prompts/router_fewshot_v4.json` | v4 라우터 예시. 네 골든셋과 겹치지 않는다 |
 | `eval/golden_set_v4.json`, `.sha256` | 4.5 형식, id Q71~Q110(`GoldenSetLoader`의 id는 `Q` + 숫자 2~3자리) |
+| `eval/golden_set_v5.json`, `.sha256` | 4.5 형식, id Q111~Q150. v5 규칙을 보지 않고 쓴 v4·v5 비교용 세트(PRD 12.4) |
 | `backend/src/test/resources/router_dev_v4.json` | 라우터 개발 세트 41문항(질문, 기대 경로, 도구 경로면 도구와 검증 뒤 인자). v4 라우터 프롬프트를 다듬을 때 평가 세트 대신 본다. 네 골든셋·라우터 예시와 겹치지 않고 평가 세트를 보지 않고 썼다. `RouterDevSetIT`(`ollama` 태그)가 v4와 v3 라우터로 재서 `build/router-dev/`에 문항별 결과를 쓴다 |
 
 `prompts/v3_router.txt`, `tools.yml`, `router_fewshot.json`은 v3 전용으로 남고 바꾸지 않는다.
@@ -747,3 +748,18 @@ v3과 다른 점만 적는다. 응답 형식(8.1), 답변 단계, 숫자 후검�
 | llm | `OracleLlmClient` | `ROUTE_V4`에도 정답 action에 맞춘 route를 돌려준다 |
 
 `SqlValidator` 수정은 v2와 v3의 SQL 경로에도 적용된다. 지금까지의 실제 모델 측정에는 `SQL_REJECTED`가 한 건도 없어 저장된 결과는 영향을 받지 않는다.
+
+## 10. v5 계약 (PRD 12장, 채택하지 않음)
+
+v4와 다른 점만 적는다. 라우터의 메시지와 출력 형식은 v4와 같다(`buildRouter(V5, …)`는 v4의 세 파일을 쓰고, 출력 형식은 `ROUTE_V4`). `promptVersion`은 `v5`.
+
+| 패키지 | 타입 | 변경 |
+| --- | --- | --- |
+| prompt | `PromptVersion` | `V5("v5")`. `routed()`가 true |
+| tool | `ToolRouteGuard` (`@Component`) | `Decision check(String question, ToolCall call)` → `Decision(ToolCall call, String rerouteReason, boolean orderCorrected)`. `reroute()`는 `rerouteReason != null` |
+| service | `ChatService` | V5의 도구 경로: 인자 검증 실패 또는 `reroute()`면 SQL 단계(v1 프롬프트, 검증, 재시도). `orderCorrected`면 고친 호출을 실행 |
+
+- SQL 단계로 넘긴 응답: `route = "sql"`, `tool = null`, `action`은 SQL 단계의 결과. `chat_log`·`eval_result`의 `tool_name`은 라우터가 낸 도구 이름, `tool_args`는 그 인자에 `"guard": "<이유>"`를 더한 JSON. 인자 검증 실패는 이유가 `rejected: <검증기 사유>`다.
+- 정렬 방향을 고친 도구 호출: `tool.args`의 `order`는 고친 값이고 `"guard": "order corrected"`가 붙는다.
+- `attempts`는 1~4 그대로다(라우터 1, SQL 생성 1, 재시도 1, 답변 문장 1).
+- `OracleLlmClient`는 v4와 같이 `ROUTE_V4`에 정답 action의 route를 준다. oracle의 v5는 SQL 경로만 지나가므로 점검을 거치지 않는다. 점검은 `ToolRouteGuardTest`와 `ChatServiceTest`가 본다.

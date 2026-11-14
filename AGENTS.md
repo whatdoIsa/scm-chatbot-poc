@@ -31,7 +31,7 @@ scm-chatbot-poc/
   backend/       build.gradle  src/main/java/com/scmchat/{controller,service,llm,prompt,validator,executor,mapper,entity,repository,eval,config,dto,tool,answer}
   frontend/      Vite 프로젝트
   prompts/       v0.txt  v1.txt  v2.txt  metrics.yml  fewshot.json  schema_rules.yml  v3_router.txt  v3_answer.txt  tools.yml  router_fewshot.json  v4_router.txt  tools_v4.yml  router_fewshot_v4.json
-  eval/          golden_set.json  golden_set.sha256  golden_set_deep.json  golden_set_deep.sha256  golden_set_v3.json  golden_set_v3.sha256  golden_set_v4.json  golden_set_v4.sha256  crosscheck.md  reports/
+  eval/          golden_set.json  golden_set.sha256  golden_set_deep.json  golden_set_deep.sha256  golden_set_v3.json  golden_set_v3.sha256  golden_set_v4.json  golden_set_v4.sha256  golden_set_v5.json  golden_set_v5.sha256  crosscheck.md  reports/
   .github/       workflows/ci.yml  pull_request_template.md
   docs/          PRD.md  API_SPEC.md  ai-mistakes.md
 ```
@@ -93,7 +93,7 @@ bash scripts/final_check.sh
 
 의존 관계: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10. T11(React)은 T5 이후 아무 때나 시작할 수 있고, 모델 측정 대기 시간에 진행한다. T11의 README·동결 부분은 마지막에 한다.
 
-T0~T11은 `poc-freeze`로, T12~T17(v3)은 `v3-freeze`로 끝났다. v4는 T18 → T19 → T20 → T21 순서다(PRD 11장, API_SPEC 9장).
+T0~T11은 `poc-freeze`로, T12~T17(v3)은 `v3-freeze`로, T18~T21(v4)은 `v4-freeze`로 끝났다. v5(T22~T24)는 v5 규칙을 보지 않은 새 세트에서 v4보다 낫지 않아 채택하지 않았다(2026-11-14). 최종 버전은 v4다(PRD 12장, API_SPEC 10장).
 
 ### T0. 환경 점검과 저장소 골격
 
@@ -532,6 +532,49 @@ cd .. && bash scripts/final_check.sh
 git tag v4-freeze
 ```
 완료: v4 실행 4개와 새 세트의 v1~v3 실행 3개 저장, v4 실행의 미분류 오답 0건, `final_check.sh` exit 0, `v4-freeze` 태그. 여기까지가 카테고리 8의 PR이다.
+
+### T22. v5 도구 경로 점검
+
+참조: PRD 12.2, 12.3, API_SPEC 10장
+
+작업
+- `PromptVersion.V5`, `ToolRouteGuard`, `ChatService`의 V5 분기(인자 검증 실패·점검 불일치는 SQL 단계, 정렬 방향 교정)
+- 단위 테스트 `ToolRouteGuardTest`(통과, SQL 단계로 보낼 것, 정렬 방향 교정, 그대로 둘 것), `ChatServiceTest`(V5 세 경로, 같은 호출을 V4는 그대로 실행)
+- 라우터 개발 세트 2(`router_dev2_v5.json`)는 규칙을 고정하기 전에 쓰고, 고정할 때까지 모델 출력을 보지 않는다
+- CI의 oracle 점검에 v5 추가
+
+검증
+```bash
+set -a; . ./.env; set +a
+cd backend && ./gradlew test integrationTest
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v4,v5 --eval.report-dir=build/eval-reports'
+```
+완료: 테스트 통과, oracle v4·v5 `30 / 30`.
+
+### T23. v5 측정과 문서
+
+작업
+- v5를 네 세트로 1회씩 측정, 오답 분류(미분류 0건), v4와 문항별 짝 비교
+- 라우터 개발 세트 2로 v4·v5의 경로 정확도를 한 번 잰다
+- README에 v5 결과와 한계(PRD 12.5)
+
+완료: v5 실행 4개 저장, 미분류 0건, `final_check.sh` exit 0.
+
+### T24. (사용자 확인 뒤) 새 평가 세트로 v4·v5 비교, `v5-freeze`
+
+작업
+- v5 규칙을 보지 않은 작성자가 `eval/golden_set_v5.json` 40문항(Q111~Q150)을 쓰고, 사용자가 검토한 뒤 `eval/golden_set_v5.sha256`으로 동결한다
+- v4·v5를 새 세트로 1회씩 측정, 오답 분류(미분류 0건), 문항별 짝 비교
+- 결과를 보고 사용자가 v5 채택을 정한다. 채택하면 `v5-freeze`. 새 세트를 본 뒤 v5 규칙을 고치면 그 세트도 본 세트가 된다
+
+검증
+```bash
+set -a; . ./.env; set +a
+sha256sum -c eval/golden_set.sha256 eval/golden_set_deep.sha256 eval/golden_set_v3.sha256 eval/golden_set_v4.sha256 eval/golden_set_v5.sha256
+cd backend && ./gradlew test integrationTest -PexcludeOllama
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v4,v5 --eval.golden-path=../eval/golden_set_v5.json --eval.golden-hash-path=../eval/golden_set_v5.sha256'
+```
+완료: 다섯 해시 `OK`, 테스트 통과, oracle(v1·v2·v4·v5 경로) `40 / 40`, v4·v5 실행 저장과 미분류 0건.
 
 ## 9. 일정과 T 매핑
 

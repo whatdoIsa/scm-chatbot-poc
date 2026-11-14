@@ -93,7 +93,7 @@ bash scripts/final_check.sh
 
 의존 관계: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10. T11(React)은 T5 이후 아무 때나 시작할 수 있고, 모델 측정 대기 시간에 진행한다. T11의 README·동결 부분은 마지막에 한다.
 
-T0~T11은 `poc-freeze`로, T12~T17(v3)은 `v3-freeze`로, T18~T21(v4)은 `v4-freeze`로 끝났다. v5(제안, 사용자 확인 전)는 T22 → T23 → T24 순서다(PRD 12장, API_SPEC 10장).
+T0~T11은 `poc-freeze`로, T12~T17(v3)은 `v3-freeze`로, T18~T21(v4)은 `v4-freeze`로 끝났다. v5(T22~T24)는 v5 규칙을 보지 않은 새 세트에서 v4보다 낫지 않아 채택하지 않았다(2026-11-14). 최종 버전은 v4다(PRD 12장, API_SPEC 10장).
 
 ### T0. 환경 점검과 저장소 골격
 

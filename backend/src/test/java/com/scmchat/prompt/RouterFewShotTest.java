@@ -162,13 +162,14 @@ class RouterFewShotTest {
 
     /**
      * 라우터 개발 세트(test/resources/router_dev_v4.json, RouterDevSetIT)는 평가 세트 대신 프롬프트를 다듬을 때 본다.
-     * 네 골든셋과 라우터 예시 어느 것과도 겹치면 안 되고, 기대한 도구 호출은 서버가 받아들이는 호출이어야 한다.
+     * 다섯 골든셋과 라우터 예시 어느 것과도 겹치면 안 되고, 기대한 도구 호출은 서버가 받아들이는 호출이어야 한다.
      */
     @Test
     void routerDevSetIsDisjointFromGoldenSetsAndExamplesAndHasValidToolCalls() throws java.io.IOException {
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        for (String file : List.of("golden_set.json", "golden_set_deep.json", "golden_set_v3.json", "golden_set_v4.json")) {
+        for (String file : List.of("golden_set.json", "golden_set_deep.json", "golden_set_v3.json", "golden_set_v4.json",
+                "golden_set_v5.json")) {
             mapper.readTree(Path.of("../eval", file).toFile())
                     .forEach(item -> seen.add(normalize(item.get("question").asText())));
         }
@@ -176,7 +177,7 @@ class RouterFewShotTest {
         // SQL 단계 예시(fewshot.json)도 본다. 그 5개는 v3 라우터 예시 5개와 같은 질문이라(v3 설계) 개수는 늘지 않는다.
         new FewShotLoader(Path.of("../prompts/fewshot.json")).examples()
                 .forEach(example -> seen.add(normalize(example.question())));
-        assertThat(seen).hasSize(110 + 10 + 23);
+        assertThat(seen).hasSize(150 + 10 + 23);
 
         com.fasterxml.jackson.databind.JsonNode dev =
                 mapper.readTree(Path.of("src/test/resources/router_dev_v4.json").toFile());

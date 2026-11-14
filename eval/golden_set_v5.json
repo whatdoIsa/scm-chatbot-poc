@@ -1,0 +1,355 @@
+[
+  {
+    "id": "Q111",
+    "type": "SIMPLE_LOOKUP",
+    "question": "SKU-044 지금 전 센터 합쳐서 재고 몇 개 있어?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT SUM(on_hand) FROM scm.inventory_daily WHERE sku = 'SKU-044' AND snap_date = DATE '2026-11-08'",
+    "orderSensitive": false,
+    "note": "일반 조회. 기준일 재고, 전 거점 합산"
+  },
+  {
+    "id": "Q112",
+    "type": "SIMPLE_LOOKUP",
+    "question": "광주센터 SKU-028 입고 예정 물량 있어?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT in_transit FROM scm.inventory_daily WHERE sku = 'SKU-028' AND location_id = 'LOC-04' AND snap_date = DATE '2026-11-08'",
+    "orderSensitive": false,
+    "note": "일반 조회. 기준일 in_transit"
+  },
+  {
+    "id": "Q113",
+    "type": "SIMPLE_LOOKUP",
+    "question": "어제 서울센터에 SKU-001 재고가 얼마 남아 있었지?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT on_hand FROM scm.inventory_daily WHERE sku = 'SKU-001' AND location_id = 'LOC-01' AND snap_date = DATE '2026-11-07'",
+    "orderSensitive": false,
+    "note": "일반 조회. 어제 = 2026-11-07"
+  },
+  {
+    "id": "Q114",
+    "type": "SIMPLE_LOOKUP",
+    "question": "SKU-037 원가는 얼마로 등록돼 있어?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT unit_cost FROM scm.product WHERE sku = 'SKU-037'",
+    "orderSensitive": false,
+    "note": "일반 조회. product.unit_cost"
+  },
+  {
+    "id": "Q115",
+    "type": "SIMPLE_LOOKUP",
+    "question": "대전센터 SKU-027 안전재고는 몇 개로 잡혀 있어?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT safety_stock FROM scm.supply_policy WHERE sku = 'SKU-027' AND location_id = 'LOC-03'",
+    "orderSensitive": false,
+    "note": "도구 낱말과 겹치지만 도구가 답하지 않는 조회(안전재고 값)"
+  },
+  {
+    "id": "Q116",
+    "type": "SIMPLE_LOOKUP",
+    "question": "부산센터 SKU-040 발주점이 몇이야?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT reorder_point FROM scm.supply_policy WHERE sku = 'SKU-040' AND location_id = 'LOC-02'",
+    "orderSensitive": false,
+    "note": "도구 낱말과 겹치지만 도구가 답하지 않는 조회(재주문점 값)"
+  },
+  {
+    "id": "Q117",
+    "type": "SIMPLE_LOOKUP",
+    "question": "지금 재고가 완전히 바닥난 SKU-거점 있으면 알려줘",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT i.sku, l.name FROM scm.inventory_daily i JOIN scm.location l ON l.location_id = i.location_id WHERE i.snap_date = DATE '2026-11-08' AND i.on_hand = 0",
+    "orderSensitive": false,
+    "note": "도구 낱말과 겹치지만 도구가 답하지 않는 조회(현재 재고 0인 SKU-거점, 결품률·안전재고 미달 아님)"
+  },
+  {
+    "id": "Q118",
+    "type": "PERIOD_AGG",
+    "question": "SKU-021 예측 수량 13주치 다 더하면 얼마야?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT SUM(forecast_qty) FROM scm.forecast_weekly WHERE sku = 'SKU-021'",
+    "orderSensitive": false,
+    "note": "도구 낱말과 겹치지만 도구가 답하지 않는 조회(예측 수량 합계, 13주 전체)"
+  },
+  {
+    "id": "Q119",
+    "type": "PERIOD_AGG",
+    "question": "지난주 서울센터 전체 출고량 합계 좀 뽑아줘",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT SUM(qty) FROM scm.sales_daily WHERE location_id = 'LOC-01' AND sale_date BETWEEN DATE '2026-10-26' AND DATE '2026-11-01'",
+    "orderSensitive": false,
+    "note": "일반 집계. 지난주 = 2026-10-26 ~ 2026-11-01"
+  },
+  {
+    "id": "Q120",
+    "type": "PERIOD_AGG",
+    "question": "이번 달 들어서 SKU-005는 몇 개 팔렸어?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT SUM(qty) FROM scm.sales_daily WHERE sku = 'SKU-005' AND sale_date BETWEEN DATE '2026-11-01' AND DATE '2026-11-08'",
+    "orderSensitive": false,
+    "note": "일반 집계(판매량 합계). 이번 달 = 2026-11-01 ~ 2026-11-08"
+  },
+  {
+    "id": "Q121",
+    "type": "PERIOD_AGG",
+    "question": "10월 카테고리별 판매량 정리해줘",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT p.category, SUM(s.qty) FROM scm.sales_daily s JOIN scm.product p ON p.sku = s.sku WHERE s.sale_date BETWEEN DATE '2026-10-01' AND DATE '2026-10-31' GROUP BY p.category",
+    "orderSensitive": false,
+    "note": "일반 집계. 카테고리 5행"
+  },
+  {
+    "id": "Q122",
+    "type": "PERIOD_AGG",
+    "question": "어제 센터별로 얼마나 나갔는지 보여줘",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT l.name, SUM(s.qty) FROM scm.sales_daily s JOIN scm.location l ON l.location_id = s.location_id WHERE s.sale_date = DATE '2026-11-07' GROUP BY l.name",
+    "orderSensitive": false,
+    "note": "일반 집계. 어제 = 2026-11-07, 거점 5행"
+  },
+  {
+    "id": "Q123",
+    "type": "PERIOD_AGG",
+    "question": "SKU-042 10월 12일부터 이번 주까지 주 단위 판매량 보여줘",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT CAST(date_trunc('week', sale_date) AS date) AS week_start, SUM(qty) FROM scm.sales_daily WHERE sku = 'SKU-042' AND sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08' GROUP BY CAST(date_trunc('week', sale_date) AS date)",
+    "orderSensitive": false,
+    "note": "일반 집계. 월~일 주 4개(10-12, 10-19, 10-26, 11-02 시작)"
+  },
+  {
+    "id": "Q124",
+    "type": "PERIOD_AGG",
+    "question": "9월에 영남권에서 팔린 수량 총합은?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT SUM(s.qty) FROM scm.sales_daily s JOIN scm.location l ON l.location_id = s.location_id WHERE l.region = '영남권' AND s.sale_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'",
+    "orderSensitive": false,
+    "note": "일반 집계. 권역 조건, 9월 = 2026-09-01 ~ 2026-09-30"
+  },
+  {
+    "id": "Q125",
+    "type": "METRIC",
+    "question": "SKU-014 최근 14일 동안 하루 평균 출고량이 얼마야?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT SUM(qty) / 14.0 FROM scm.sales_daily WHERE sku = 'SKU-014' AND sale_date BETWEEN DATE '2026-10-26' AND DATE '2026-11-08'",
+    "orderSensitive": false,
+    "note": "도구(avg_daily_sales, sku, days 14)로 답할 수 있는 지표"
+  },
+  {
+    "id": "Q126",
+    "type": "METRIC",
+    "question": "대구센터 SKU-031은 요즘 팔리는 속도면 지금 재고로 며칠 버텨?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT i.on_hand / NULLIF((SELECT SUM(s.qty) FROM scm.sales_daily s WHERE s.sku = 'SKU-031' AND s.location_id = 'LOC-05' AND s.sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08') / 28.0, 0) FROM scm.inventory_daily i WHERE i.sku = 'SKU-031' AND i.location_id = 'LOC-05' AND i.snap_date = DATE '2026-11-08'",
+    "orderSensitive": false,
+    "note": "도구(days_of_supply, sku, location)로 답할 수 있는 지표. 지표 이름을 쓰지 않음"
+  },
+  {
+    "id": "Q127",
+    "type": "METRIC",
+    "question": "부산센터 SKU-011의 9월 결품률은?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT SUM(CASE WHEN on_hand = 0 THEN 1 ELSE 0 END) * 1.0 / COUNT(*) FROM scm.inventory_daily WHERE sku = 'SKU-011' AND location_id = 'LOC-02' AND snap_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'",
+    "orderSensitive": false,
+    "note": "도구(stockout_rate, sku, location, 날짜)로 답할 수 있는 지표"
+  },
+  {
+    "id": "Q128",
+    "type": "METRIC",
+    "question": "서울센터 SKU-008 수요예측은 얼마나 잘 맞았어? 정확도로 알려줘",
+    "expectedAction": "sql",
+    "goldenSql": "WITH w AS (SELECT f.forecast_qty, (SELECT COALESCE(SUM(s.qty), 0) FROM scm.sales_daily s WHERE s.sku = f.sku AND s.location_id = f.location_id AND s.sale_date BETWEEN f.week_start AND f.week_start + 6) AS actual_qty FROM scm.forecast_weekly f WHERE f.sku = 'SKU-008' AND f.location_id = 'LOC-01') SELECT 1 - SUM(ABS(actual_qty - forecast_qty)) * 1.0 / SUM(actual_qty) FROM w",
+    "orderSensitive": false,
+    "note": "도구(forecast_accuracy, sku, location)로 답할 수 있는 지표. 13주"
+  },
+  {
+    "id": "Q129",
+    "type": "METRIC",
+    "question": "대구센터에서 안전재고 밑으로 떨어진 품목이 몇 개나 돼?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT COUNT(*) FROM scm.inventory_daily i JOIN scm.supply_policy p ON p.sku = i.sku AND p.location_id = i.location_id WHERE i.snap_date = DATE '2026-11-08' AND i.location_id = 'LOC-05' AND i.on_hand < p.safety_stock",
+    "orderSensitive": false,
+    "note": "도구(below_safety_stock count, location)로 답할 수 있는 지표"
+  },
+  {
+    "id": "Q130",
+    "type": "METRIC",
+    "question": "음료 카테고리 전체로 보면 최근 7일 일평균 판매량이 어느 정도야?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT SUM(s.qty) / 7.0 FROM scm.sales_daily s JOIN scm.product p ON p.sku = s.sku WHERE p.category = '음료' AND s.sale_date BETWEEN DATE '2026-11-02' AND DATE '2026-11-08'",
+    "orderSensitive": false,
+    "note": "조건 인자가 있어야 도구로 답할 수 있음(avg_daily_sales, category, days 7)"
+  },
+  {
+    "id": "Q131",
+    "type": "METRIC",
+    "question": "영남권 센터들 지난달 결품률 어땠어?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT SUM(CASE WHEN i.on_hand = 0 THEN 1 ELSE 0 END) * 1.0 / COUNT(*) FROM scm.inventory_daily i JOIN scm.location l ON l.location_id = i.location_id WHERE l.region = '영남권' AND i.snap_date BETWEEN DATE '2026-10-01' AND DATE '2026-10-31'",
+    "orderSensitive": false,
+    "note": "조건 인자가 있어야 도구로 답할 수 있음(stockout_rate, region, 지난달)"
+  },
+  {
+    "id": "Q132",
+    "type": "METRIC",
+    "question": "A등급 품목들 묶어서 보면 재고보유일수가 며칠 정도 나와?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT (SELECT SUM(i.on_hand) FROM scm.inventory_daily i JOIN scm.product p ON p.sku = i.sku WHERE p.abc_class = 'A' AND i.snap_date = DATE '2026-11-08') / NULLIF((SELECT SUM(s.qty) FROM scm.sales_daily s JOIN scm.product p ON p.sku = s.sku WHERE p.abc_class = 'A' AND s.sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08') / 28.0, 0)",
+    "orderSensitive": false,
+    "note": "조건 인자가 있어야 도구로 답할 수 있음(days_of_supply, abc_class A, 범위 전체 합산)"
+  },
+  {
+    "id": "Q133",
+    "type": "METRIC",
+    "question": "냉동식품 쪽에서 지금 발주를 넣어야 하는 SKU-거점은 몇 군데야?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT COUNT(*) FROM scm.inventory_daily i JOIN scm.supply_policy sp ON sp.sku = i.sku AND sp.location_id = i.location_id JOIN scm.product p ON p.sku = i.sku WHERE p.category = '냉동식품' AND i.snap_date = DATE '2026-11-08' AND i.on_hand + i.in_transit <= sp.reorder_point",
+    "orderSensitive": false,
+    "note": "조건 인자가 있어야 도구로 답할 수 있음(reorder_needed count, category 냉동식품)"
+  },
+  {
+    "id": "Q134",
+    "type": "METRIC",
+    "question": "부산센터에서 재고보유일수가 리드타임보다 짧은 품목 어디어디야?",
+    "expectedAction": "sql",
+    "goldenSql": "WITH sold AS (SELECT sku, SUM(qty) AS qty FROM scm.sales_daily WHERE location_id = 'LOC-02' AND sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08' GROUP BY sku) SELECT i.sku FROM scm.inventory_daily i JOIN sold ON sold.sku = i.sku JOIN scm.supply_policy p ON p.sku = i.sku AND p.location_id = i.location_id WHERE i.location_id = 'LOC-02' AND i.snap_date = DATE '2026-11-08' AND sold.qty > 0 AND i.on_hand / (sold.qty / 28.0) < p.lead_time_days",
+    "orderSensitive": false,
+    "note": "도구로 표현할 수 없는 지표(재고보유일수와 리드타임 비교, 부산센터 SKU-거점 단위)"
+  },
+  {
+    "id": "Q135",
+    "type": "METRIC",
+    "question": "SKU-003 9월 한 달 동안 일평균 판매량은?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT SUM(qty) / 30.0 FROM scm.sales_daily WHERE sku = 'SKU-003' AND sale_date BETWEEN DATE '2026-09-01' AND DATE '2026-09-30'",
+    "orderSensitive": false,
+    "note": "도구로 표현할 수 없는 지표(달력 구간의 일평균, 9월 30일)"
+  },
+  {
+    "id": "Q136",
+    "type": "METRIC",
+    "question": "센터별 결품률 보여줘",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT l.name, SUM(CASE WHEN i.on_hand = 0 THEN 1 ELSE 0 END) * 1.0 / COUNT(*) FROM scm.inventory_daily i JOIN scm.location l ON l.location_id = i.location_id GROUP BY l.name",
+    "orderSensitive": false,
+    "note": "도구로 표현할 수 없는 지표(거점 단위 결품률, 기간 미지정이라 전체 기간)"
+  },
+  {
+    "id": "Q137",
+    "type": "RANKING",
+    "question": "최근 30일 기준 일평균 판매량 상위 5개 SKU 알려줘",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT sku, SUM(qty) / 30.0 AS avg_daily FROM scm.sales_daily WHERE sale_date BETWEEN DATE '2026-10-10' AND DATE '2026-11-08' GROUP BY sku ORDER BY avg_daily DESC, sku LIMIT 5",
+    "orderSensitive": true,
+    "note": "도구(avg_daily_sales ranking, days 30)로 답할 수 있는 지표"
+  },
+  {
+    "id": "Q138",
+    "type": "RANKING",
+    "question": "서울센터만 놓고 볼 때 재고보유일수가 긴 쪽으로 4개 품목 꼽아줘",
+    "expectedAction": "sql",
+    "goldenSql": "WITH sold AS (SELECT sku, SUM(qty) AS qty FROM scm.sales_daily WHERE location_id = 'LOC-01' AND sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08' GROUP BY sku) SELECT i.sku, i.on_hand / (sold.qty / 28.0) AS dos FROM scm.inventory_daily i JOIN sold ON sold.sku = i.sku WHERE i.location_id = 'LOC-01' AND i.snap_date = DATE '2026-11-08' AND sold.qty > 0 ORDER BY dos DESC, i.sku LIMIT 4",
+    "orderSensitive": true,
+    "note": "도구(days_of_supply ranking desc, location 서울센터, top_n 4)로 답할 수 있는 지표"
+  },
+  {
+    "id": "Q139",
+    "type": "RANKING",
+    "question": "스낵 중에서 재고일수 제일 긴 품목 3개만 보여줘",
+    "expectedAction": "sql",
+    "goldenSql": "WITH stock AS (SELECT i.sku, SUM(i.on_hand) AS on_hand FROM scm.inventory_daily i JOIN scm.product p ON p.sku = i.sku WHERE p.category = '스낵' AND i.snap_date = DATE '2026-11-08' GROUP BY i.sku), sold AS (SELECT sku, SUM(qty) AS qty FROM scm.sales_daily WHERE sale_date BETWEEN DATE '2026-10-12' AND DATE '2026-11-08' GROUP BY sku) SELECT stock.sku, stock.on_hand / (sold.qty / 28.0) AS dos FROM stock JOIN sold ON sold.sku = stock.sku WHERE sold.qty > 0 ORDER BY dos DESC, stock.sku LIMIT 3",
+    "orderSensitive": true,
+    "note": "조건 인자가 있어야 도구로 답할 수 있음(days_of_supply ranking, category)"
+  },
+  {
+    "id": "Q140",
+    "type": "RANKING",
+    "question": "C등급 품목 가운데 결품률 높은 순으로 3개 보여줘",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT i.sku, SUM(CASE WHEN i.on_hand = 0 THEN 1 ELSE 0 END) * 1.0 / COUNT(*) AS stockout_rate FROM scm.inventory_daily i JOIN scm.product p ON p.sku = i.sku WHERE p.abc_class = 'C' GROUP BY i.sku ORDER BY stockout_rate DESC, i.sku LIMIT 3",
+    "orderSensitive": true,
+    "note": "조건 인자가 있어야 도구로 답할 수 있음(stockout_rate ranking, abc_class C, 전체 기간)"
+  },
+  {
+    "id": "Q141",
+    "type": "RANKING",
+    "question": "수도권 기준으로 예측 정확도가 가장 낮은 품목 3개는?",
+    "expectedAction": "sql",
+    "goldenSql": "WITH w AS (SELECT f.sku, f.forecast_qty, (SELECT COALESCE(SUM(s.qty), 0) FROM scm.sales_daily s WHERE s.sku = f.sku AND s.location_id = f.location_id AND s.sale_date BETWEEN f.week_start AND f.week_start + 6) AS actual_qty FROM scm.forecast_weekly f JOIN scm.location l ON l.location_id = f.location_id WHERE l.region = '수도권') SELECT sku, 1 - SUM(ABS(actual_qty - forecast_qty)) * 1.0 / SUM(actual_qty) AS accuracy FROM w GROUP BY sku ORDER BY accuracy, sku LIMIT 3",
+    "orderSensitive": true,
+    "note": "조건 인자가 있어야 도구로 답할 수 있음(forecast_accuracy ranking asc, region 수도권 = 서울센터 1곳)"
+  },
+  {
+    "id": "Q142",
+    "type": "RANKING",
+    "question": "지난달 제일 많이 팔린 품목 5개는?",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT sku, SUM(qty) AS total_qty FROM scm.sales_daily WHERE sale_date BETWEEN DATE '2026-10-01' AND DATE '2026-10-31' GROUP BY sku ORDER BY total_qty DESC, sku LIMIT 5",
+    "orderSensitive": true,
+    "note": "일반 집계 순위. 지난달 = 2026-10-01 ~ 2026-10-31, 판매량 합계"
+  },
+  {
+    "id": "Q143",
+    "type": "RANKING",
+    "question": "현재 재고를 많이 들고 있는 센터 순으로 정렬해줘",
+    "expectedAction": "sql",
+    "goldenSql": "SELECT l.name, SUM(i.on_hand) AS total_on_hand FROM scm.inventory_daily i JOIN scm.location l ON l.location_id = i.location_id WHERE i.snap_date = DATE '2026-11-08' GROUP BY l.name ORDER BY total_on_hand DESC, l.name",
+    "orderSensitive": true,
+    "note": "일반 집계 순위. 거점 단위 기준일 재고"
+  },
+  {
+    "id": "Q144",
+    "type": "AMBIGUOUS",
+    "question": "세제 재고 지금 얼마나 있어?",
+    "expectedAction": "clarify",
+    "orderSensitive": false,
+    "note": "되묻기. 세제가 주방세제(SKU-024)와 세탁세제(SKU-025) 두 품목"
+  },
+  {
+    "id": "Q145",
+    "type": "AMBIGUOUS",
+    "question": "그 SKU 결품률 다시 보여줘",
+    "expectedAction": "clarify",
+    "orderSensitive": false,
+    "note": "되묻기. 가리키는 품목이 질문에 없음"
+  },
+  {
+    "id": "Q146",
+    "type": "AMBIGUOUS",
+    "question": "SKU-030 수량 얼마야?",
+    "expectedAction": "clarify",
+    "orderSensitive": false,
+    "note": "되묻기. 수량이 현재고(on_hand), 입고 예정(in_transit), 판매량(qty), 예측 수량(forecast_qty) 중 무엇인지와 기간이 없음"
+  },
+  {
+    "id": "Q147",
+    "type": "REFUSE",
+    "question": "서울센터 SKU-033 안전재고를 50으로 올려줘",
+    "expectedAction": "refuse",
+    "orderSensitive": false,
+    "note": "거부. 데이터 변경 요청"
+  },
+  {
+    "id": "Q148",
+    "type": "REFUSE",
+    "question": "SKU-008 지난주 판매 기록 지워 줘",
+    "expectedAction": "refuse",
+    "orderSensitive": false,
+    "note": "거부. 데이터 삭제 요청"
+  },
+  {
+    "id": "Q149",
+    "type": "REFUSE",
+    "question": "작년 11월에 SKU-001 얼마나 팔렸어?",
+    "expectedAction": "refuse",
+    "orderSensitive": false,
+    "note": "거부. 데이터 범위 밖 기간(2025-11)"
+  },
+  {
+    "id": "Q150",
+    "type": "REFUSE",
+    "question": "SKU-015 공급업체 담당자 연락처 알려줘",
+    "expectedAction": "refuse",
+    "orderSensitive": false,
+    "note": "거부. 데이터에 없는 정보(공급업체)"
+  }
+]

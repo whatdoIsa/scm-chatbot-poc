@@ -715,6 +715,7 @@ v3과 다른 점만 적는다. 응답 형식(8.1), 답변 단계, 숫자 후검�
 | `prompts/tools_v4.yml` | 도구 목록. 항목마다 `not_for`(이 도구가 답하지 않는 질문)를 둔다 |
 | `prompts/router_fewshot_v4.json` | v4 라우터 예시. 네 골든셋과 겹치지 않는다 |
 | `eval/golden_set_v4.json`, `.sha256` | 4.5 형식, id Q71~Q110(`GoldenSetLoader`의 id는 `Q` + 숫자 2~3자리) |
+| `eval/golden_set_v5.json`, `.sha256` | 4.5 형식, id Q111~Q150. v5 규칙을 보지 않고 쓴 v4·v5 비교용 세트(PRD 12.4) |
 | `backend/src/test/resources/router_dev_v4.json` | 라우터 개발 세트 41문항(질문, 기대 경로, 도구 경로면 도구와 검증 뒤 인자). v4 라우터 프롬프트를 다듬을 때 평가 세트 대신 본다. 네 골든셋·라우터 예시와 겹치지 않고 평가 세트를 보지 않고 썼다. `RouterDevSetIT`(`ollama` 태그)가 v4와 v3 라우터로 재서 `build/router-dev/`에 문항별 결과를 쓴다 |
 
 `prompts/v3_router.txt`, `tools.yml`, `router_fewshot.json`은 v3 전용으로 남고 바꾸지 않는다.

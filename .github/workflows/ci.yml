@@ -36,7 +36,7 @@ jobs:
             echo "SCM_RO_DB_PASSWORD=$ro_pw"
           } > .env
       - name: Frozen golden set hashes
-        run: sha256sum -c eval/golden_set.sha256 eval/golden_set_deep.sha256 eval/golden_set_v3.sha256 eval/golden_set_v4.sha256
+        run: sha256sum -c eval/golden_set.sha256 eval/golden_set_deep.sha256 eval/golden_set_v3.sha256 eval/golden_set_v4.sha256 eval/golden_set_v5.sha256
       - name: Start database and verify seed
         run: |
           bash scripts/db_reset.sh
@@ -63,6 +63,8 @@ jobs:
           test "$(grep -c '^| 정확도 | 20 / 20 = 1.0000 |' oracle-holdout.log)" = "3"
           ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v1,v2,v3,v4 --eval.golden-path=../eval/golden_set_v4.json --eval.golden-hash-path=../eval/golden_set_v4.sha256 --eval.report-dir=build/eval-reports' | tee oracle-v4set.log
           test "$(grep -c '^| 정확도 | 40 / 40 = 1.0000 |' oracle-v4set.log)" = "4"
+          ./gradlew bootRun --console=plain --args='--spring.profiles.active=eval --chat.llm.provider=oracle --eval.versions=v1,v2,v4,v5 --eval.golden-path=../eval/golden_set_v5.json --eval.golden-hash-path=../eval/golden_set_v5.sha256 --eval.report-dir=build/eval-reports' | tee oracle-v5set.log
+          test "$(grep -c '^| 정확도 | 40 / 40 = 1.0000 |' oracle-v5set.log)" = "4"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

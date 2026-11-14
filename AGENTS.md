@@ -31,7 +31,7 @@ scm-chatbot-poc/
   backend/       build.gradle  src/main/java/com/scmchat/{controller,service,llm,prompt,validator,executor,mapper,entity,repository,eval,config,dto,tool,answer}
   frontend/      Vite 프로젝트
   prompts/       v0.txt  v1.txt  v2.txt  metrics.yml  fewshot.json  schema_rules.yml  v3_router.txt  v3_answer.txt  tools.yml  router_fewshot.json  v4_router.txt  tools_v4.yml  router_fewshot_v4.json
-  eval/          golden_set.json  golden_set.sha256  golden_set_deep.json  golden_set_deep.sha256  golden_set_v3.json  golden_set_v3.sha256  golden_set_v4.json  golden_set_v4.sha256  crosscheck.md  reports/
+  eval/          golden_set.json  golden_set.sha256  golden_set_deep.json  golden_set_deep.sha256  golden_set_v3.json  golden_set_v3.sha256  golden_set_v4.json  golden_set_v4.sha256  golden_set_v5.json  golden_set_v5.sha256  crosscheck.md  reports/
   .github/       workflows/ci.yml  pull_request_template.md
   docs/          PRD.md  API_SPEC.md  ai-mistakes.md
 ```
@@ -561,6 +561,20 @@ cd backend && ./gradlew test integrationTest
 완료: v5 실행 4개 저장, 미분류 0건, `final_check.sh` exit 0.
 
 ### T24. (사용자 확인 뒤) 새 평가 세트로 v4·v5 비교, `v5-freeze`
+
+작업
+- v5 규칙을 보지 않은 작성자가 `eval/golden_set_v5.json` 40문항(Q111~Q150)을 쓰고, 사용자가 검토한 뒤 `eval/golden_set_v5.sha256`으로 동결한다
+- v4·v5를 새 세트로 1회씩 측정, 오답 분류(미분류 0건), 문항별 짝 비교
+- 결과를 보고 사용자가 v5 채택을 정한다. 채택하면 `v5-freeze`. 새 세트를 본 뒤 v5 규칙을 고치면 그 세트도 본 세트가 된다
+
+검증
+```bash
+set -a; . ./.env; set +a
+sha256sum -c eval/golden_set.sha256 eval/golden_set_deep.sha256 eval/golden_set_v3.sha256 eval/golden_set_v4.sha256 eval/golden_set_v5.sha256
+cd backend && ./gradlew test integrationTest -PexcludeOllama
+./gradlew bootRun --args='--spring.profiles.active=eval --chat.llm.provider=ollama --eval.versions=v4,v5 --eval.golden-path=../eval/golden_set_v5.json --eval.golden-hash-path=../eval/golden_set_v5.sha256'
+```
+완료: 다섯 해시 `OK`, 테스트 통과, oracle(v1·v2·v4·v5 경로) `40 / 40`, v4·v5 실행 저장과 미분류 0건.
 
 ## 9. 일정과 T 매핑
 
